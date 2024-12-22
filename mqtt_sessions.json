@@ -1,1 +1,1 @@
-{"postman-mqtt-client-1734734480341":{"subscriptions":[],"qosLevels":{},"timestamp":"2024-12-21T00:49:18.260242"}}
+{"postman-mqtt-client-1734734480341":{"subscriptions":["hello"],"qosLevels":{"hello":0},"timestamp":"2024-12-21T00:52:57.028131"},"postman-mqtt-client-1734735156883":{"subscriptions":["hello"],"qosLevels":{"hello":0},"timestamp":"2024-12-21T00:53:45.819648"}}
