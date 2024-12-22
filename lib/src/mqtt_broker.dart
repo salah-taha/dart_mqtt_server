@@ -292,9 +292,6 @@ class MqttBroker {
         default:
           print('Unsupported packet type: $packetType');
       }
-
-      // Update session activity
-      session.lastActivity = DateTime.now();
     } catch (e, stackTrace) {
       print('Error handling MQTT packet: $e');
       print('Stack trace: $stackTrace');
