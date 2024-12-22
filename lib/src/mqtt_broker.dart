@@ -236,12 +236,6 @@ class MqttBroker {
     final retain = (data[0] & 0x01) == 0x01;
 
     try {
-      final session = _clientSessions[client];
-      if (session == null) {
-        print('No session found for client');
-        return;
-      }
-
       switch (packetType) {
         case 1: // CONNECT
           await _handleConnect(data, client);
