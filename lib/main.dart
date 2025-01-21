@@ -1,8 +1,5 @@
-// Example usage
 import 'dart:io';
-
 import 'package:mqtt_server/mqtt_server.dart';
-import 'package:mqtt_server/src/mqtt_broker_config.dart';
 
 void main() async {
   final config = MqttBrokerConfig(
