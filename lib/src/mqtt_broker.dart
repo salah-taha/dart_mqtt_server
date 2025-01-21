@@ -6,8 +6,8 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
-import 'package:mqtt_server/src/broker_metrics.dart';
-import 'package:mqtt_server/src/mqtt_broker_config.dart';
+import 'package:mqtt_server/src/models/broker_metrics.dart';
+import 'package:mqtt_server/src/models/mqtt_broker_config.dart';
 import 'package:mqtt_server/src/mqtt_connection.dart';
 import 'package:mqtt_server/src/models/mqtt_message.dart';
 import 'package:mqtt_server/src/mqtt_session.dart';

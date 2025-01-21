@@ -5,7 +5,7 @@ import 'dart:developer' as developer;
 
 import 'package:mqtt_server/src/enums/qos_message_state.dart';
 import 'package:mqtt_server/src/models/qos_message.dart';
-import 'package:mqtt_server/src/mqtt_broker_config.dart';
+import 'package:mqtt_server/src/models/mqtt_broker_config.dart';
 import 'package:mqtt_server/src/mqtt_connection.dart';
 import 'package:mqtt_server/src/models/mqtt_message.dart';
 
