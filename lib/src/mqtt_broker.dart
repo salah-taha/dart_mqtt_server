@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
@@ -8,7 +9,7 @@ import 'package:crypto/crypto.dart';
 import 'package:mqtt_server/src/broker_metrics.dart';
 import 'package:mqtt_server/src/mqtt_broker_config.dart';
 import 'package:mqtt_server/src/mqtt_connection.dart';
-import 'package:mqtt_server/src/mqtt_message.dart';
+import 'package:mqtt_server/src/models/mqtt_message.dart';
 import 'package:mqtt_server/src/mqtt_session.dart';
 import 'package:mqtt_server/src/qos_handler.dart';
 
@@ -85,7 +86,7 @@ class MqttBroker {
 
     // Log metrics if enabled
     if (config.enableMetrics) {
-      print('Broker Metrics: ${_metrics.getMetricsSnapshot()}');
+      developer.log('Broker Metrics: ${_metrics.getMetricsSnapshot()}');
     }
   }
 
@@ -187,8 +188,8 @@ class MqttBroker {
             buffer = buffer.sublist(totalLength);
 
             // Add more logging
-            print('Processing packet type: ${(packetData[0] >> 4) & 0x0F}');
-            print('Packet length: $totalLength');
+            developer.log('Processing packet type: ${(packetData[0] >> 4) & 0x0F}');
+            developer.log('Packet length: $totalLength');
 
             // Process immediately instead of scheduling
             if (client.isConnected) {
@@ -196,8 +197,8 @@ class MqttBroker {
             }
           }
         } catch (e, stackTrace) {
-          print('Error processing data: $e');
-          print('Stack trace: $stackTrace');
+          developer.log('Error processing data: $e');
+          developer.log('Stack trace: $stackTrace');
           _handleDisconnection(client);
         }
       },
@@ -290,11 +291,11 @@ class MqttBroker {
           break;
 
         default:
-          print('Unsupported packet type: $packetType');
+          developer.log('Unsupported packet type: $packetType');
       }
     } catch (e, stackTrace) {
-      print('Error handling MQTT packet: $e');
-      print('Stack trace: $stackTrace');
+      developer.log('Error handling MQTT packet: $e');
+      developer.log('Stack trace: $stackTrace');
     }
   }
 
@@ -472,7 +473,7 @@ class MqttBroker {
         }
       }
     } catch (e, stackTrace) {
-      print('Error handling CONNECT packet: $e\n$stackTrace');
+      developer.log('Error handling CONNECT packet: $e\n$stackTrace');
       await _sendConnack(client, 0x04); // Bad format
       return;
     }
@@ -549,7 +550,7 @@ class MqttBroker {
 
       // Get subscribers including the sender
       final subscribers = (_topicSubscriptions[topic] ?? {}).toList();
-      print('Number of subscribers: ${subscribers.length}');
+      developer.log('Number of subscribers: ${subscribers.length}');
 
       // Forward message to subscribers
       for (final subscriber in subscribers) {
@@ -580,8 +581,8 @@ class MqttBroker {
         _metrics.recordPublish(topic, session.clientId);
       }
     } catch (e, stackTrace) {
-      print('Error handling PUBLISH packet: $e');
-      print('Stack trace: $stackTrace');
+      developer.log('Error handling PUBLISH packet: $e');
+      developer.log('Stack trace: $stackTrace');
     }
   }
 

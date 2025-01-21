@@ -1,4 +1,4 @@
-import 'package:mqtt_server/src/mqtt_message.dart';
+import 'package:mqtt_server/src/models/mqtt_message.dart';
 
 class MqttSession {
   final String clientId;

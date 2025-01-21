@@ -6,7 +6,7 @@ import 'package:mqtt_server/src/mqtt_broker_config.dart';
 
 void main() async {
   final config = MqttBrokerConfig(
-    port: 18560,
+    port: 18561,
     useSsl: false,
     authenticationRequired: false,
     maxRetryAttempts: 3,

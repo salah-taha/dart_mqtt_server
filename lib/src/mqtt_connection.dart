@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:developer' as developer;
 
 import 'package:mqtt_server/src/mqtt_session.dart';
 
@@ -32,19 +33,19 @@ class MqttConnection {
         _onData!(data);
       }
     } catch (e, stackTrace) {
-      print('Error handling data: $e');
-      print('Stack trace: $stackTrace');
+      developer.log('Error handling data: $e');
+      developer.log('Stack trace: $stackTrace');
     }
   }
 
   void _handleError(error, StackTrace stackTrace) {
-    print('Socket Error: $error');
-    print('Stack trace: $stackTrace');
+    developer.log('Socket Error: $error');
+    developer.log('Stack trace: $stackTrace');
     _cleanupConnection();
   }
 
   void _handleDone() {
-    print('Socket Done - Normal closure');
+    developer.log('Socket Done - Normal closure');
     _cleanupConnection();
   }
 
@@ -58,7 +59,7 @@ class MqttConnection {
       _socket.flush();
       _socket.close();
     } catch (e) {
-      print('Error during cleanup: $e');
+      developer.log('Error during cleanup: $e');
     }
 
     // Notify broker of disconnection if callback is set
@@ -83,7 +84,7 @@ class MqttConnection {
 
   Future<void> send(Uint8List data) async {
     if (!_isConnected) {
-      print('Attempting to send data when not connected');
+      developer.log('Attempting to send data when not connected');
       return;
     }
 
@@ -91,8 +92,8 @@ class MqttConnection {
       _socket.add(data);
       // await _socket.flush(); // Ensure data is sent immediately
     } catch (e, stackTrace) {
-      print('Error sending data: $e');
-      print('Stack trace: $stackTrace');
+      developer.log('Error sending data: $e');
+      developer.log('Stack trace: $stackTrace');
       _cleanupConnection();
     }
   }

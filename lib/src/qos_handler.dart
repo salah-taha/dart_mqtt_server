@@ -1,36 +1,14 @@
 // QoS message states
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:developer' as developer;
 
+import 'package:mqtt_server/src/enums/qos_message_state.dart';
+import 'package:mqtt_server/src/models/qos_message.dart';
 import 'package:mqtt_server/src/mqtt_broker_config.dart';
 import 'package:mqtt_server/src/mqtt_connection.dart';
-import 'package:mqtt_server/src/mqtt_message.dart';
+import 'package:mqtt_server/src/models/mqtt_message.dart';
 
-// QoS message states
-enum QosState { published, pubAckPending, pubRecPending, pubRelPending, pubCompPending, completed, failed }
-
-// Represents a message in the QoS flow
-class QosMessage {
-  final String topic;
-  final MqttMessage message;
-  final int messageId;
-  final String clientId;
-  QosState state;
-  int retryCount;
-  Timer? retryTimer;
-  final Completer<void> completer;
-
-  QosMessage({
-    required this.topic,
-    required this.message,
-    required this.messageId,
-    required this.clientId,
-  })  : state = QosState.published,
-        retryCount = 0,
-        completer = Completer<void>();
-}
-
-// Handles QoS flow logic
 class QosHandler {
   final Map<int, QosMessage> _pendingMessages = {};
   final MqttBrokerConfig config;
@@ -81,7 +59,7 @@ class QosHandler {
         await _handleQos2Flow(client, qosMessage);
       }
     } catch (e) {
-      print('Error in QoS flow: $e');
+      developer.log('Error in QoS flow: $e');
       _handleRetry(client, qosMessage);
     }
 
@@ -89,7 +67,7 @@ class QosHandler {
   }
 
   Future<void> _handleQos1Flow(MqttConnection client, QosMessage qosMessage) async {
-    qosMessage.state = QosState.pubAckPending;
+    qosMessage.state = QosMessageState.pubAckPending;
 
     // Send PUBACK
     final puback = _createPubAckPacket(qosMessage.messageId);
@@ -100,7 +78,7 @@ class QosHandler {
   }
 
   Future<void> _handleQos2Flow(MqttConnection client, QosMessage qosMessage) async {
-    qosMessage.state = QosState.pubRecPending;
+    qosMessage.state = QosMessageState.pubRecPending;
 
     // Send PUBREC
     final pubrec = _createPubRecPacket(qosMessage.messageId);
@@ -114,7 +92,7 @@ class QosHandler {
     final qosMessage = _pendingMessages[messageId];
     if (qosMessage == null) return;
 
-    qosMessage.state = QosState.completed;
+    qosMessage.state = QosMessageState.completed;
     _cleanupMessage(messageId, true);
   }
 
@@ -122,7 +100,7 @@ class QosHandler {
     final qosMessage = _pendingMessages[messageId];
     if (qosMessage == null) return;
 
-    qosMessage.state = QosState.pubRelPending;
+    qosMessage.state = QosMessageState.pubRelPending;
 
     // Send PUBREL
     final pubrel = _createPubRelPacket(messageId);
@@ -136,7 +114,7 @@ class QosHandler {
     final qosMessage = _pendingMessages[messageId];
     if (qosMessage == null) return;
 
-    qosMessage.state = QosState.pubCompPending;
+    qosMessage.state = QosMessageState.pubCompPending;
 
     // Send PUBCOMP
     final pubcomp = _createPubCompPacket(messageId);
@@ -147,13 +125,13 @@ class QosHandler {
     final qosMessage = _pendingMessages[messageId];
     if (qosMessage == null) return;
 
-    qosMessage.state = QosState.completed;
+    qosMessage.state = QosMessageState.completed;
     _cleanupMessage(messageId, true);
   }
 
   void _handleRetry(MqttConnection client, QosMessage qosMessage) {
     if (qosMessage.retryCount >= config.maxRetryAttempts) {
-      qosMessage.state = QosState.failed;
+      qosMessage.state = QosMessageState.failed;
       _cleanupMessage(qosMessage.messageId, false);
       return;
     }
