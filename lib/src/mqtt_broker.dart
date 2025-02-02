@@ -307,22 +307,22 @@ class MqttBroker {
         return;
       }
 
-      // Validate protocol name (should be "MQTT" for MQTT 3.1.1)
-      final protocolLength = ((data[2] << 8) | data[3]);
-      if (protocolLength != 4 ||
-          data[4] != 'M'.codeUnitAt(0) ||
-          data[5] != 'Q'.codeUnitAt(0) ||
-          data[6] != 'T'.codeUnitAt(0) ||
-          data[7] != 'T'.codeUnitAt(0)) {
-        await _sendConnack(client, 0x01);
-        return;
-      }
+      // // Validate protocol name (should be "MQTT" for MQTT 3.1.1)
+      // final protocolLength = ((data[2] << 8) | data[3]);
+      // if (protocolLength != 4 ||
+      //     data[4] != 'M'.codeUnitAt(0) ||
+      //     data[5] != 'Q'.codeUnitAt(0) ||
+      //     data[6] != 'T'.codeUnitAt(0) ||
+      //     data[7] != 'T'.codeUnitAt(0)) {
+      //   await _sendConnack(client, 0x01);
+      //   return;
+      // }
 
-      // Protocol version check (0x04 for MQTT 3.1.1)
-      if (data[8] != 0x04) {
-        await _sendConnack(client, 0x01);
-        return;
-      }
+      // // Protocol version check (0x04 for MQTT 3.1.1)
+      // if (data[8] != 0x04) {
+      //   await _sendConnack(client, 0x01);
+      //   return;
+      // }
 
       final connectFlags = data[9];
       final cleanSession = (connectFlags & 0x02) != 0;
@@ -509,24 +509,44 @@ class MqttBroker {
     if (session == null) return;
 
     try {
+      print('Full packet: ${data.map((b) => b.toRadixString(16)).join(', ')}');
+      print('Control Header: 0x${data[0].toRadixString(16)}'); // Should be 0x34 for QoS 2 PUBLISH
+      print('Length: ${data[1]}');
+      print('Message ID bytes: 0x${data[2].toRadixString(16)}, 0x${data[3].toRadixString(16)}');
+      print('Next bytes: 0x${data[4].toRadixString(16)}, 0x${data[5].toRadixString(16)}');
       var pos = 2;
-      if (pos >= data.length) return;
+      if (pos >= data.length) {
+        print('Early return: pos >= data.length');
+        return;
+      }
 
-      // Get message ID for QoS > 0
+// Get message ID for QoS > 0
       int? messageId;
       if (qos > 0) {
-        if (pos + 2 > data.length) return;
+        if (pos + 2 > data.length) {
+          print('Return at message ID: buffer too short');
+          return;
+        }
         messageId = ((data[pos] << 8) | data[pos + 1]);
+        print('Message ID: $messageId, pos: $pos');
         pos += 2;
       }
 
-      // Extract topic length
-      if (pos + 2 > data.length) return;
+// Extract topic length
+      if (pos + 2 > data.length) {
+        print('Return at topic length: buffer too short');
+        return;
+      }
+      print('Topic length bytes: ${data[pos].toRadixString(16)}, ${data[pos + 1].toRadixString(16)}');
       final topicLength = ((data[pos] << 8) | data[pos + 1]);
+      print('Topic length: $topicLength, pos: $pos');
       pos += 2;
 
-      // Extract topic
-      if (pos + topicLength > data.length) return;
+// Extract topic
+      if (pos + topicLength > data.length) {
+        print('Return at topic: Buffer too short. pos: $pos, topicLength: $topicLength, data.length: ${data.length}');
+        return;
+      }
       final topic = utf8.decode(data.sublist(pos, pos + topicLength));
       pos += topicLength;
 
