@@ -1,3 +1,4 @@
+import 'dart:developer';
 import 'dart:io';
 import 'package:mqtt_server/mqtt_server.dart';
 
@@ -26,16 +27,16 @@ void main() async {
       broker.addUser('user1', 'password123');
     }
 
-    print('Broker is running. Press Ctrl+C to stop.');
+    log('Broker is running. Press Ctrl+C to stop.');
 
     // Handle shutdown gracefully
     ProcessSignal.sigint.watch().listen((_) async {
-      print('\nShutting down broker...');
+      log('\nShutting down broker...');
       await broker.stop();
       exit(0);
     });
   } catch (e) {
-    print('Failed to start broker: $e');
+    log('Failed to start broker: $e');
     exit(1);
   }
 }

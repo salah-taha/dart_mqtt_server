@@ -151,7 +151,7 @@ class QosHandler {
         await _handleQos2Flow(client, qosMessage);
       }
     } catch (e) {
-      print('Retry failed: $e');
+      developer.log('Retry failed: $e');
       _handleRetry(client, qosMessage);
     }
   }

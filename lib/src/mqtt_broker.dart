@@ -112,7 +112,7 @@ class MqttBroker {
           shared: true,
         );
 
-        print('MQTT Broker listening securely on port ${config.port}');
+        developer.log('MQTT Broker listening securely on port ${config.port}');
         _secureServer!.listen(_handleConnection);
       } else {
         _server = await ServerSocket.bind(
@@ -121,7 +121,7 @@ class MqttBroker {
           shared: true,
         );
 
-        print('MQTT Broker listening on port ${config.port}');
+        developer.log('MQTT Broker listening on port ${config.port}');
         _server!.listen(_handleConnection);
       }
 
@@ -129,7 +129,7 @@ class MqttBroker {
       _startMaintenanceTimer();
       await _loadPersistentSessions();
     } catch (e) {
-      print('Failed to start MQTT broker: $e');
+      developer.log('Failed to start MQTT broker: $e');
       await stop();
       rethrow;
     }
@@ -141,7 +141,7 @@ class MqttBroker {
       final data = jsonEncode(_persistentSessions);
       await file.writeAsString(data);
     } catch (e) {
-      print('Error saving persistent sessions: $e');
+      developer.log('Error saving persistent sessions: $e');
     }
   }
 
@@ -158,12 +158,12 @@ class MqttBroker {
         });
       }
     } catch (e) {
-      print('Error loading persistent sessions: $e');
+      developer.log('Error loading persistent sessions: $e');
     }
   }
 
   void _handleConnection(Socket socket) {
-    print('New client connected: ${socket.remoteAddress.address}:${socket.remotePort}');
+    developer.log('New client connected: ${socket.remoteAddress.address}:${socket.remotePort}');
 
     final client = MqttConnection(socket);
     _setupClientHandlers(client);
@@ -509,52 +509,37 @@ class MqttBroker {
     if (session == null) return;
 
     try {
-      print('Full packet: ${data.map((b) => b.toRadixString(16)).join(', ')}');
-      print('Control Header: 0x${data[0].toRadixString(16)}'); // Should be 0x34 for QoS 2 PUBLISH
-      print('Length: ${data[1]}');
-      print('Message ID bytes: 0x${data[2].toRadixString(16)}, 0x${data[3].toRadixString(16)}');
-      print('Next bytes: 0x${data[4].toRadixString(16)}, 0x${data[5].toRadixString(16)}');
-      var pos = 2;
-      if (pos >= data.length) {
-        print('Early return: pos >= data.length');
-        return;
-      }
+      final ByteData byteData = ByteData.sublistView(data);
+      int offset = 1;
 
-// Get message ID for QoS > 0
-      int? messageId;
+      // Parse remaining length (variable byte integer)
+      int multiplier = 1;
+      int remainingLength = 0;
+      int byte;
+      do {
+        byte = byteData.getUint8(offset++);
+        remainingLength += (byte & 0x7F) * multiplier;
+        multiplier *= 128;
+      } while ((byte & 0x80) != 0);
+
+      // Parse variable header
+      // Topic name (UTF-8 encoded string)
+      int topicLength = byteData.getUint16(offset);
+      offset += 2;
+      String topic = String.fromCharCodes(data.sublist(offset, offset + topicLength));
+      offset += topicLength;
+
+      // Packet ID (only present if QoS > 0)
+      int messageId = 0;
       if (qos > 0) {
-        if (pos + 2 > data.length) {
-          print('Return at message ID: buffer too short');
-          return;
-        }
-        messageId = ((data[pos] << 8) | data[pos + 1]);
-        print('Message ID: $messageId, pos: $pos');
-        pos += 2;
+        messageId = byteData.getUint16(offset);
+        offset += 2;
       }
 
-// Extract topic length
-      if (pos + 2 > data.length) {
-        print('Return at topic length: buffer too short');
-        return;
-      }
-      print('Topic length bytes: ${data[pos].toRadixString(16)}, ${data[pos + 1].toRadixString(16)}');
-      final topicLength = ((data[pos] << 8) | data[pos + 1]);
-      print('Topic length: $topicLength, pos: $pos');
-      pos += 2;
+      // Parse payload
+      Uint8List payload = Uint8List.sublistView(data, offset, data.length);
 
-// Extract topic
-      if (pos + topicLength > data.length) {
-        print('Return at topic: Buffer too short. pos: $pos, topicLength: $topicLength, data.length: ${data.length}');
-        return;
-      }
-      final topic = utf8.decode(data.sublist(pos, pos + topicLength));
-      pos += topicLength;
-
-      // Extract payload
-      if (pos > data.length) return;
-      final payload = data.sublist(pos);
-
-      print('Publishing to topic: $topic, QoS: $qos, Retain: $retain, Payload length: ${payload.length}');
+      developer.log('Publishing to topic: $topic, QoS: $qos, Retain: $retain, Payload length: ${payload.length}');
 
       // Create message
       final message = MqttMessage(Uint8List.fromList(payload), qos, retain);
@@ -586,7 +571,7 @@ class MqttBroker {
       }
 
       // Handle QoS acknowledgment
-      if (qos > 0 && messageId != null) {
+      if (qos > 0) {
         await _qosHandler.handlePublishQos(
           client,
           topic,
@@ -741,23 +726,23 @@ class MqttBroker {
     bool isRetry = false,
   }) async {
     if (!client.isConnected) {
-      print('Client not connected when attempting to publish');
+      developer.log('Client not connected when attempting to publish');
       return;
     }
 
     final session = _clientSessions[client];
     if (session == null) {
-      print('No session found for client when attempting to publish');
+      developer.log('No session found for client when attempting to publish');
       return;
     }
 
     final messageId = message.qos > 0 ? session.getNextMessageId() : null;
     try {
-      print('Publishing message:');
-      print('  Topic: $topic');
-      print('  QoS: ${message.qos}');
-      print('  Message ID: $messageId');
-      print('  Payload length: ${message.payload.length}');
+      developer.log('Publishing message:');
+      developer.log('  Topic: $topic');
+      developer.log('  QoS: ${message.qos}');
+      developer.log('  Message ID: $messageId');
+      developer.log('  Payload length: ${message.payload.length}');
 
       final publishPacket = _createPublishPacket(
         topic,
@@ -784,8 +769,8 @@ class MqttBroker {
         _metrics.recordPublish(topic, session.clientId);
       }
     } catch (e, stackTrace) {
-      print('Error in _sendPublish: $e');
-      print('Stack trace: $stackTrace');
+      developer.log('Error in _sendPublish: $e');
+      developer.log('Stack trace: $stackTrace');
 
       if (!isRetry && message.qos > 0 && messageId != null) {
         try {
@@ -794,7 +779,7 @@ class MqttBroker {
               isRetry: true // Add isRetry parameter to handlePublishQos
               );
         } catch (retryError) {
-          print('Retry failed: $retryError');
+          developer.log('Retry failed: $retryError');
           _metrics.messagesFailed++;
         }
       } else {
@@ -868,7 +853,7 @@ class MqttBroker {
     _clientConnectionCount.clear();
 
     _isRunning = false;
-    print('MQTT Broker stopped');
+    developer.log('MQTT Broker stopped');
   }
 
   bool get isRunning => _isRunning;
