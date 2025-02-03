@@ -85,9 +85,9 @@ class MqttBroker {
     _savePersistentSessions();
 
     // Log metrics if enabled
-    if (config.enableMetrics) {
-      developer.log('Broker Metrics: ${_metrics.getMetricsSnapshot()}');
-    }
+    // if (config.enableMetrics) {
+    //   developer.log('Broker Metrics: ${_metrics.getMetricsSnapshot()}');
+    // }
   }
 
   Future<void> start() async {
@@ -186,10 +186,6 @@ class MqttBroker {
 
             final packetData = Uint8List.fromList(buffer.sublist(0, totalLength));
             buffer = buffer.sublist(totalLength);
-
-            // Add more logging
-            developer.log('Processing packet type: ${(packetData[0] >> 4) & 0x0F}');
-            developer.log('Packet length: $totalLength');
 
             // Process immediately instead of scheduling
             if (client.isConnected) {
@@ -539,8 +535,6 @@ class MqttBroker {
       // Parse payload
       Uint8List payload = Uint8List.sublistView(data, offset, data.length);
 
-      developer.log('Publishing to topic: $topic, QoS: $qos, Retain: $retain, Payload length: ${payload.length}');
-
       // Create message
       final message = MqttMessage(Uint8List.fromList(payload), qos, retain);
 
@@ -555,7 +549,6 @@ class MqttBroker {
 
       // Get subscribers including the sender
       final subscribers = (_topicSubscriptions[topic] ?? {}).toList();
-      developer.log('Number of subscribers: ${subscribers.length}');
 
       // Forward message to subscribers
       for (final subscriber in subscribers) {
@@ -738,12 +731,6 @@ class MqttBroker {
 
     final messageId = message.qos > 0 ? session.getNextMessageId() : null;
     try {
-      developer.log('Publishing message:');
-      developer.log('  Topic: $topic');
-      developer.log('  QoS: ${message.qos}');
-      developer.log('  Message ID: $messageId');
-      developer.log('  Payload length: ${message.payload.length}');
-
       final publishPacket = _createPublishPacket(
         topic,
         message,
