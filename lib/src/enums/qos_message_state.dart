@@ -1,9 +1,8 @@
 enum QosMessageState {
-  published,
+  pending,
   pubAckPending,
   pubRecPending,
   pubRelPending,
   pubCompPending,
   completed,
-  failed,
 }

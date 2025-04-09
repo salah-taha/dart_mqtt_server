@@ -1,5 +1,5 @@
-// QoS message states
 import 'dart:async';
+import 'dart:collection';
 import 'dart:typed_data';
 import 'dart:developer' as developer;
 
@@ -10,7 +10,9 @@ import 'package:mqtt_server/src/mqtt_connection.dart';
 import 'package:mqtt_server/src/models/mqtt_message.dart';
 
 class QosHandler {
-  final Map<int, QosMessage> _pendingMessages = {};
+  final Map<String, Map<int, QosMessage>> _pendingMessages = {};
+  final Map<String, Queue<QosMessage>> _messageQueues = {};
+  final Map<String, bool> _processingQueues = {};
   final MqttBrokerConfig config;
   final void Function(QosMessage) onMessageComplete;
   final void Function(QosMessage) onMessageFailed;
@@ -29,158 +31,174 @@ class QosHandler {
     MqttMessage message,
     int messageId,
     String clientId, {
-    bool isRetry = false, // Add isRetry parameter
+    bool isRetry = false,
   }) async {
-    if (message.qos == 0) {
-      return;
-    }
+    if (message.qos == 0) return;
 
-    // If this message is already being handled and this is a retry, increment retry count
-    final existingMessage = _pendingMessages[messageId];
+    _pendingMessages.putIfAbsent(clientId, () => {});
+    _messageQueues.putIfAbsent(clientId, () => Queue<QosMessage>());
+
+    final existingMessage = _pendingMessages[clientId]?[messageId];
     if (existingMessage != null && isRetry) {
-      _handleRetry(client, existingMessage);
+      await _processMessage(client, existingMessage);
       return;
     }
 
-    // Otherwise create new QoS message
     final qosMessage = QosMessage(
       topic: topic,
       message: message,
       messageId: messageId,
       clientId: clientId,
+      state: QosMessageState.pending,
+      timestamp: DateTime.now(),
+      retryCount: 0,
     );
 
-    _pendingMessages[messageId] = qosMessage;
+    _pendingMessages[clientId]![messageId] = qosMessage;
+    _messageQueues[clientId]!.add(qosMessage);
+
+    await _processQueue(client, clientId);
+  }
+
+  Future<void> _processQueue(MqttConnection client, String clientId) async {
+    if (_processingQueues[clientId] == true) return;
+    _processingQueues[clientId] = true;
 
     try {
-      if (message.qos == 1) {
-        await _handleQos1Flow(client, qosMessage);
-      } else if (message.qos == 2) {
-        await _handleQos2Flow(client, qosMessage);
+      final queue = _messageQueues[clientId];
+      if (queue == null || queue.isEmpty) return;
+
+      while (queue.isNotEmpty) {
+        final message = queue.first;
+        
+        // Only check expiry if messageExpiryInterval is set
+        if (config.messageExpiryInterval != null && 
+            DateTime.now().difference(message.timestamp) > config.messageExpiryInterval!) {
+          _handleMessageFailed(message);
+          queue.removeFirst();
+          continue;
+        }
+
+        if (message.state == QosMessageState.completed) {
+          queue.removeFirst();
+          continue;
+        }
+
+        await _processMessage(client, message);
+        if (message.state != QosMessageState.completed) {
+          break; // Wait for acknowledgment before processing next message
+        }
+        queue.removeFirst();
+      }
+    } finally {
+      _processingQueues[clientId] = false;
+    }
+  }
+
+  Future<void> _processMessage(MqttConnection client, QosMessage message) async {
+    try {
+      if (message.retryCount >= config.maxRetryAttempts) {
+        _handleMessageFailed(message);
+        return;
+      }
+
+      if (message.message.qos == 1) {
+        await _handleQos1Flow(client, message);
+      } else if (message.message.qos == 2) {
+        await _handleQos2Flow(client, message);
       }
     } catch (e) {
-      developer.log('Error in QoS flow: $e');
-      _handleRetry(client, qosMessage);
+      developer.log('Error processing QoS message: $e');
+      message.retryCount++;
+      message.timestamp = DateTime.now();
     }
-
-    return qosMessage.completer.future;
   }
 
-  Future<void> _handleQos1Flow(MqttConnection client, QosMessage qosMessage) async {
-    qosMessage.state = QosMessageState.pubAckPending;
-
-    // Send PUBACK
-    final puback = _createPubAckPacket(qosMessage.messageId);
+  Future<void> _handleQos1Flow(MqttConnection client, QosMessage message) async {
+    message.state = QosMessageState.pubAckPending;
+    final puback = _createPubAckPacket(message.messageId);
     await sendPacket(client, puback);
-
-    // Start timeout for PUBACK
-    _startAckTimeout(client, qosMessage);
   }
 
-  Future<void> _handleQos2Flow(MqttConnection client, QosMessage qosMessage) async {
-    qosMessage.state = QosMessageState.pubRecPending;
-
-    // Send PUBREC
-    final pubrec = _createPubRecPacket(qosMessage.messageId);
+  Future<void> _handleQos2Flow(MqttConnection client, QosMessage message) async {
+    message.state = QosMessageState.pubRecPending;
+    final pubrec = _createPubRecPacket(message.messageId);
     await sendPacket(client, pubrec);
-
-    // Start timeout for PUBREC
-    _startAckTimeout(client, qosMessage);
   }
 
   void handlePubAck(MqttConnection client, int messageId) {
-    final qosMessage = _pendingMessages[messageId];
-    if (qosMessage == null) return;
+    final clientId = _getClientId(client);
+    if (clientId == null) return;
 
-    qosMessage.state = QosMessageState.completed;
-    _cleanupMessage(messageId, true);
+    final message = _pendingMessages[clientId]?[messageId];
+    if (message == null) return;
+
+    message.state = QosMessageState.completed;
+    _handleMessageComplete(message);
   }
 
   Future<void> handlePubRec(MqttConnection client, int messageId) async {
-    final qosMessage = _pendingMessages[messageId];
-    if (qosMessage == null) return;
+    final clientId = _getClientId(client);
+    if (clientId == null) return;
 
-    qosMessage.state = QosMessageState.pubRelPending;
+    final message = _pendingMessages[clientId]?[messageId];
+    if (message == null) return;
 
-    // Send PUBREL
+    message.state = QosMessageState.pubRelPending;
     final pubrel = _createPubRelPacket(messageId);
     await sendPacket(client, pubrel);
-
-    // Start timeout for PUBCOMP
-    _startAckTimeout(client, qosMessage);
   }
 
   Future<void> handlePubRel(MqttConnection client, int messageId) async {
-    final qosMessage = _pendingMessages[messageId];
-    if (qosMessage == null) return;
+    final clientId = _getClientId(client);
+    if (clientId == null) return;
 
-    qosMessage.state = QosMessageState.pubCompPending;
+    final message = _pendingMessages[clientId]?[messageId];
+    if (message == null) return;
 
-    // Send PUBCOMP
+    message.state = QosMessageState.pubCompPending;
     final pubcomp = _createPubCompPacket(messageId);
     await sendPacket(client, pubcomp);
   }
 
-  void handlePubComp(int messageId) {
-    final qosMessage = _pendingMessages[messageId];
-    if (qosMessage == null) return;
+  void handlePubComp(MqttConnection client, int messageId) {
+    final clientId = _getClientId(client);
+    if (clientId == null) return;
 
-    qosMessage.state = QosMessageState.completed;
-    _cleanupMessage(messageId, true);
+    final message = _pendingMessages[clientId]?[messageId];
+    if (message == null) return;
+
+    message.state = QosMessageState.completed;
+    _handleMessageComplete(message);
   }
 
-  void _handleRetry(MqttConnection client, QosMessage qosMessage) {
-    if (qosMessage.retryCount >= config.maxRetryAttempts) {
-      qosMessage.state = QosMessageState.failed;
-      _cleanupMessage(qosMessage.messageId, false);
-      return;
-    }
-
-    qosMessage.retryCount++;
-    qosMessage.retryTimer = Timer(
-      config.retryDelay * qosMessage.retryCount,
-      () => _retryMessage(client, qosMessage),
+  void _handleMessageComplete(QosMessage message) {
+    _pendingMessages[message.clientId]?.remove(message.messageId);
+    onMessageComplete(message);
+    _processQueue(
+      _getClientConnection(message.clientId),
+      message.clientId,
     );
   }
 
-  Future<void> _retryMessage(MqttConnection client, QosMessage qosMessage) async {
-    try {
-      if (qosMessage.message.qos == 1) {
-        await _handleQos1Flow(client, qosMessage);
-      } else {
-        await _handleQos2Flow(client, qosMessage);
-      }
-    } catch (e) {
-      developer.log('Retry failed: $e');
-      _handleRetry(client, qosMessage);
-    }
+  void _handleMessageFailed(QosMessage message) {
+    _pendingMessages[message.clientId]?.remove(message.messageId);
+    onMessageFailed(message);
   }
 
-  void _startAckTimeout(MqttConnection client, QosMessage qosMessage) {
-    qosMessage.retryTimer?.cancel();
-    qosMessage.retryTimer = Timer(
-      config.keepAliveTimeout,
-      () => _handleRetry(client, qosMessage),
-    );
+  String? _getClientId(MqttConnection client) {
+    // Implementation depends on how you store client IDs
+    // This should be implemented based on your client management system
+    return null;
   }
 
-  void _cleanupMessage(int messageId, bool success) {
-    final qosMessage = _pendingMessages[messageId];
-    if (qosMessage == null) return;
-
-    qosMessage.retryTimer?.cancel();
-    _pendingMessages.remove(messageId);
-
-    if (success) {
-      qosMessage.completer.complete();
-      onMessageComplete(qosMessage);
-    } else {
-      qosMessage.completer.completeError('QoS flow failed');
-      onMessageFailed(qosMessage);
-    }
+  MqttConnection _getClientConnection(String clientId) {
+    // Implementation depends on how you store client connections
+    // This should be implemented based on your client management system
+    throw UnimplementedError();
   }
 
-  // Packet creation helpers
+  // Packet creation helpers remain the same
   Uint8List _createPubAckPacket(int messageId) {
     return Uint8List.fromList([
       0x40, // PUBACK fixed header

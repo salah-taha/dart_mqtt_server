@@ -267,7 +267,7 @@ class MqttBroker {
           if (data.length < 4) return;
 
           final messageId = ((data[2] << 8) | data[3]);
-          _qosHandler.handlePubComp(messageId);
+          _qosHandler.handlePubComp(client,messageId);
           break;
 
         case 8: // SUBSCRIBE
@@ -509,14 +509,14 @@ class MqttBroker {
       int offset = 1;
 
       // Parse remaining length (variable byte integer)
-      int multiplier = 1;
-      int remainingLength = 0;
-      int byte;
-      do {
-        byte = byteData.getUint8(offset++);
-        remainingLength += (byte & 0x7F) * multiplier;
-        multiplier *= 128;
-      } while ((byte & 0x80) != 0);
+      // int multiplier = 1;
+      // int remainingLength = 0;
+      // int byte;
+      // do {
+      //   byte = byteData.getUint8(offset++);
+      //   remainingLength += (byte & 0x7F) * multiplier;
+      //   multiplier *= 128;
+      // } while ((byte & 0x80) != 0);
 
       // Parse variable header
       // Topic name (UTF-8 encoded string)
