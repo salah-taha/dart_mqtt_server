@@ -186,16 +186,31 @@ class QosHandler {
     onMessageFailed(message);
   }
 
+  final Map<MqttConnection, String> _connectionToClientId = {};
+  final Map<String, MqttConnection> _clientIdToConnection = {};
+
+  void registerClient(MqttConnection client, String clientId) {
+    _connectionToClientId[client] = clientId;
+    _clientIdToConnection[clientId] = client;
+  }
+
+  void unregisterClient(MqttConnection client) {
+    final clientId = _connectionToClientId.remove(client);
+    if (clientId != null) {
+      _clientIdToConnection.remove(clientId);
+    }
+  }
+
   String? _getClientId(MqttConnection client) {
-    // Implementation depends on how you store client IDs
-    // This should be implemented based on your client management system
-    return null;
+    return _connectionToClientId[client];
   }
 
   MqttConnection _getClientConnection(String clientId) {
-    // Implementation depends on how you store client connections
-    // This should be implemented based on your client management system
-    throw UnimplementedError();
+    final connection = _clientIdToConnection[clientId];
+    if (connection == null) {
+      throw StateError('No connection found for client ID: $clientId');
+    }
+    return connection;
   }
 
   // Packet creation helpers remain the same

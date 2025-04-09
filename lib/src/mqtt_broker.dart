@@ -409,6 +409,9 @@ class MqttBroker {
       // Create or restore session
       final session = MqttSession(clientId);
       _clientSessions[client] = session;
+      
+      // Register client with QoS handler
+      _qosHandler.registerClient(client, clientId);
       session.lastActivity = DateTime.now();
 
       // Handle Will message if present
@@ -707,7 +710,7 @@ class MqttBroker {
     if (config.enableMetrics) {
       _metrics.activeConnections--;
     }
-
+    _qosHandler.unregisterClient(client);
     _clientSessions.remove(client);
     await client.disconnect();
   }
