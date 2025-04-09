@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:mqtt_server/src/enums/qos_message_state.dart';
 import 'package:mqtt_server/src/models/mqtt_message.dart';
 

@@ -13,6 +13,7 @@ class QosHandler {
   final Map<String, Map<int, QosMessage>> _pendingMessages = {};
   final Map<String, Queue<QosMessage>> _messageQueues = {};
   final Map<String, bool> _processingQueues = {};
+  final Map<String, bool> _pausedQueues = {};
   final MqttBrokerConfig config;
   final void Function(QosMessage) onMessageComplete;
   final void Function(QosMessage) onMessageFailed;
@@ -61,7 +62,8 @@ class QosHandler {
   }
 
   Future<void> _processQueue(MqttConnection client, String clientId) async {
-    if (_processingQueues[clientId] == true) return;
+    // Check both processing state and pause state
+    if (_processingQueues[clientId] == true || _pausedQueues[clientId] == true) return;
     _processingQueues[clientId] = true;
 
     try {
@@ -248,5 +250,23 @@ class QosHandler {
       (messageId >> 8) & 0xFF,
       messageId & 0xFF,
     ]);
+  }
+
+  void clearClientQueue(String clientId) {
+    _pendingMessages.remove(clientId);
+    _messageQueues.remove(clientId);
+    _processingQueues.remove(clientId);
+    _pausedQueues.remove(clientId);  // Also clear pause state
+  }
+
+  void pauseClientQueue(String clientId) {
+    _pausedQueues[clientId] = true;
+  }
+
+  Future<void> resumeClientQueue(MqttConnection client, String clientId) async {
+    // Ensure CONNACK is sent first by delaying queue processing
+    await Future.delayed(Duration.zero);
+    _pausedQueues.remove(clientId);
+    await _processQueue(client, clientId);
   }
 }
