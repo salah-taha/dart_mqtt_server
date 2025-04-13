@@ -585,40 +585,61 @@ class MqttBroker {
 
   Future<void> _handlePublish(Uint8List data, MqttConnection client, int qos, bool retain) async {
     final session = _clientSessions[client];
-    if (session == null) return;
+    if (session == null) {
+      developer.log('No session found for publish');
+      return;
+    }
 
     try {
-      final ByteData byteData = ByteData.sublistView(data);
+      // Validate minimum packet length (fixed header + topic length bytes)
+      if (data.length < 4) {
+        developer.log('Invalid PUBLISH packet: too short');
+        return;
+      }
+
       int offset = 1;
+      // Skip remaining length bytes
+      while ((data[offset] & 0x80) != 0 && offset < 4) {
+        offset++;
+      }
+      offset++; // Move past the last remaining length byte
 
-      // Parse remaining length (variable byte integer)
-      // int multiplier = 1;
-      // int remainingLength = 0;
-      // int byte;
-      // do {
-      //   byte = byteData.getUint8(offset++);
-      //   remainingLength += (byte & 0x7F) * multiplier;
-      //   multiplier *= 128;
-      // } while ((byte & 0x80) != 0);
+      // Ensure we have enough bytes for topic length
+      if (offset + 2 > data.length) {
+        developer.log('Invalid PUBLISH packet: insufficient data for topic length');
+        return;
+      }
 
-      // Parse variable header
-      // Topic name (UTF-8 encoded string)
-      int topicLength = byteData.getUint16(offset);
+      // Parse topic length
+      final topicLength = ((data[offset] << 8) | data[offset + 1]);
       offset += 2;
-      String topic = String.fromCharCodes(data.sublist(offset, offset + topicLength));
+
+      // Validate topic length
+      if (topicLength <= 0 || offset + topicLength > data.length) {
+        developer.log('Invalid PUBLISH packet: invalid topic length');
+        return;
+      }
+
+      // Parse topic
+      final topic = utf8.decode(
+        data.sublist(offset, offset + topicLength),
+        allowMalformed: false,
+      );
       offset += topicLength;
 
-      // Packet ID (only present if QoS > 0)
+      // Parse message ID for QoS > 0
       int messageId = 0;
       if (qos > 0) {
-        messageId = byteData.getUint16(offset);
+        if (offset + 2 > data.length) {
+          developer.log('Invalid PUBLISH packet: insufficient data for message ID');
+          return;
+        }
+        messageId = ((data[offset] << 8) | data[offset + 1]);
         offset += 2;
       }
 
       // Parse payload
-      Uint8List payload = Uint8List.sublistView(data, offset, data.length);
-
-      // Create message
+      final payload = data.sublist(offset);
       final message = MqttMessage(Uint8List.fromList(payload), qos, retain);
 
       // Handle retained messages
@@ -630,23 +651,38 @@ class MqttBroker {
         }
       }
 
-      // Get subscribers including the sender
-      final subscribers = (_topicSubscriptions[topic] ?? {}).toList();
+      // Get subscribers excluding the sender
+      final subscribers = (_topicSubscriptions[topic] ?? {})
+          .where((sub) => sub != client && sub.isConnected)
+          .toList();
+
+      developer.log('Publishing to ${subscribers.length} subscribers for topic: $topic');
 
       // Forward message to subscribers
       for (final subscriber in subscribers) {
-        if (!subscriber.isConnected) continue;
+        try {
+          final subscriberSession = _clientSessions[subscriber];
+          if (subscriberSession != null) {
+            final subscriberQoS = subscriberSession.qosLevels[topic] ?? 0;
+            final effectiveQoS = min(qos, subscriberQoS);
 
-        final subscriberSession = _clientSessions[subscriber];
-        if (subscriberSession != null) {
-          final subscriberQoS = subscriberSession.qosLevels[topic] ?? 0;
-          final effectiveQoS = min(qos, subscriberQoS);
-
-          await _sendPublish(subscriber, topic, MqttMessage(Uint8List.fromList(payload), effectiveQoS, false));
+            await _sendPublish(
+              subscriber, 
+              topic, 
+              MqttMessage(
+                Uint8List.fromList(payload),
+                effectiveQoS,
+                false
+              )
+            );
+          }
+        } catch (e) {
+          developer.log('Error forwarding message to subscriber: $e');
+          continue; // Continue with other subscribers if one fails
         }
       }
 
-      // Handle QoS acknowledgment
+      // Handle QoS acknowledgment for the publisher
       if (qos > 0) {
         await _qosHandler.handlePublishQos(
           client,

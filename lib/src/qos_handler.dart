@@ -100,6 +100,7 @@ class QosHandler {
   Future<void> _processMessage(MqttConnection client, QosMessage message) async {
     try {
       if (message.retryCount >= config.maxRetryAttempts) {
+        developer.log('Max retry attempts reached for message');
         _handleMessageFailed(message);
         return;
       }
