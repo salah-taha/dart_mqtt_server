@@ -11,6 +11,7 @@ class MqttBrokerConfig {
   final bool enableMetrics;
   final int maxConnectionsPerClient;
   final Duration keepAliveTimeout;
+  final Duration? messageExpiryInterval;  // New field, nullable
 
   MqttBrokerConfig({
     this.port = 1883,
@@ -25,5 +26,6 @@ class MqttBrokerConfig {
     this.enableMetrics = true,
     this.maxConnectionsPerClient = 5,
     this.keepAliveTimeout = const Duration(seconds: 60),
+    this.messageExpiryInterval,  // Optional parameter
   });
 }

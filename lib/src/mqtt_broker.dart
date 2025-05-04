@@ -267,7 +267,7 @@ class MqttBroker {
           if (data.length < 4) return;
 
           final messageId = ((data[2] << 8) | data[3]);
-          _qosHandler.handlePubComp(messageId);
+          _qosHandler.handlePubComp(client,messageId);
           break;
 
         case 8: // SUBSCRIBE
@@ -297,30 +297,39 @@ class MqttBroker {
 
   Future<void> _handleConnect(Uint8List data, MqttConnection client) async {
     try {
-      // Validate minimum packet length (2 bytes fixed header + 6 bytes protocol name length and string + 4 bytes flags and keep alive)
+      // Validate minimum packet length
       if (data.length < 12) {
         await _sendConnack(client, 0x01); // Unacceptable protocol version
         return;
       }
 
-      // // Validate protocol name (should be "MQTT" for MQTT 3.1.1)
-      // final protocolLength = ((data[2] << 8) | data[3]);
-      // if (protocolLength != 4 ||
-      //     data[4] != 'M'.codeUnitAt(0) ||
-      //     data[5] != 'Q'.codeUnitAt(0) ||
-      //     data[6] != 'T'.codeUnitAt(0) ||
-      //     data[7] != 'T'.codeUnitAt(0)) {
-      //   await _sendConnack(client, 0x01);
-      //   return;
-      // }
+      var pos = 2; // Skip fixed header
 
-      // // Protocol version check (0x04 for MQTT 3.1.1)
-      // if (data[8] != 0x04) {
-      //   await _sendConnack(client, 0x01);
-      //   return;
-      // }
+      // Validate protocol name
+      final protocolLength = ((data[pos] << 8) | data[pos + 1]);
+      pos += 2;
 
-      final connectFlags = data[9];
+      if (protocolLength != 4 || pos + protocolLength > data.length) {
+        await _sendConnack(client, 0x01);
+        return;
+      }
+
+      final protocolName = String.fromCharCodes(data.sublist(pos, pos + protocolLength));
+      if (protocolName != 'MQTT') {
+        await _sendConnack(client, 0x01);
+        return;
+      }
+      pos += protocolLength;
+
+      // Validate protocol version (3.1.1 = 0x04)
+      final protocolVersion = data[pos++];
+      if (protocolVersion != 0x04) {
+        await _sendConnack(client, 0x01);
+        return;
+      }
+
+      // Parse connect flags
+      final connectFlags = data[pos++];
       final cleanSession = (connectFlags & 0x02) != 0;
       final willFlag = (connectFlags & 0x04) != 0;
       final willQoS = (connectFlags >> 3) & 0x03;
@@ -328,13 +337,19 @@ class MqttBroker {
       final passwordFlag = (connectFlags & 0x40) != 0;
       final usernameFlag = (connectFlags & 0x80) != 0;
 
-      var pos = 12;
-
-      // Validate remaining length
-      if (pos >= data.length) {
-        await _sendConnack(client, 0x04); // Bad format
+      // Validate QoS level for will message
+      if (willFlag && willQoS > 2) {
+        await _sendConnack(client, 0x01);
         return;
       }
+
+      // Read keep alive (in seconds)
+      if (pos + 2 > data.length) {
+        await _sendConnack(client, 0x04);
+        return;
+      }
+      final keepAlive = (data[pos] << 8) | data[pos + 1];
+      pos += 2;
 
       // Extract client ID
       if (pos + 2 > data.length) {
@@ -345,25 +360,35 @@ class MqttBroker {
       final clientIdLength = ((data[pos] << 8) | data[pos + 1]);
       pos += 2;
 
+      if (clientIdLength == 0 && !cleanSession) {
+        await _sendConnack(client, 0x02); // Identifier rejected
+        return;
+      }
+
       if (pos + clientIdLength > data.length) {
         await _sendConnack(client, 0x04);
         return;
       }
 
-      final clientId = utf8.decode(data.sublist(pos, pos + clientIdLength), allowMalformed: false);
+      final clientId = clientIdLength > 0
+          ? utf8.decode(data.sublist(pos, pos + clientIdLength), allowMalformed: false)
+          : _generateClientId();
       pos += clientIdLength;
 
-      // Check connection limit
-      if (!_canClientConnect(clientId)) {
-        await _sendConnack(client, 0x07); // Connection refused
-        return;
+      // Disconnect existing connection with same client ID
+      final existingConnections = _clientSessions.entries
+          .where((entry) => entry.value.clientId == clientId)
+          .map((entry) => entry.key)
+          .toList();
+
+      for (final existingConnection in existingConnections) {
+        await _handleDisconnection(existingConnection);
       }
 
       // Handle authentication
+      String? username;
+      String? password;
       if (config.authenticationRequired) {
-        String? username;
-        String? password;
-
         if (usernameFlag) {
           if (pos + 2 > data.length) {
             await _sendConnack(client, 0x04);
@@ -406,14 +431,17 @@ class MqttBroker {
         }
       }
 
-      // Create or restore session
-      final session = MqttSession(clientId);
-      _clientSessions[client] = session;
-      session.lastActivity = DateTime.now();
+      // Check connection limit
+      if (!_canClientConnect(clientId)) {
+        await _sendConnack(client, 0x07); // Connection refused
+        return;
+      }
 
-      // Handle Will message if present
+      // Handle Will message
+      MqttMessage? willMessage;
+      String? willTopic;
       if (willFlag) {
-        if (pos + 4 > data.length) {
+        if (pos + 2 > data.length) {
           await _sendConnack(client, 0x04);
           return;
         }
@@ -426,7 +454,7 @@ class MqttBroker {
           return;
         }
 
-        final willTopic = utf8.decode(data.sublist(pos, pos + willTopicLength), allowMalformed: false);
+        willTopic = utf8.decode(data.sublist(pos, pos + willTopicLength), allowMalformed: false);
         pos += willTopicLength;
 
         if (pos + 2 > data.length) {
@@ -443,14 +471,37 @@ class MqttBroker {
         }
 
         final willPayload = data.sublist(pos, pos + willMessageLength);
-
-        session.willMessage = MqttMessage(
+        willMessage = MqttMessage(
           Uint8List.fromList(willPayload),
           willQoS,
           willRetain,
         );
-        session.willTopic = willTopic;
       }
+
+      // Pause any existing queue processing
+      _qosHandler.pauseClientQueue(clientId);
+
+      // Create or restore session
+      MqttSession session;
+      if (!cleanSession && _persistentSessions.containsKey(clientId)) {
+        final persistedData = _persistentSessions[clientId]!;
+        session = MqttSession.fromPersistentData(clientId, persistedData);
+      } else {
+        session = MqttSession(clientId);
+      }
+
+      session.lastActivity = DateTime.now();
+      session.keepAlive = keepAlive;
+      session.willMessage = willMessage;
+      session.willTopic = willTopic;
+      session.cleanSession = cleanSession;
+
+      // Update client tracking
+      _clientSessions[client] = session;
+      _clientConnectionCount[clientId] = (_clientConnectionCount[clientId] ?? 0) + 1;
+      
+      // Register with QoS handler
+      _qosHandler.registerClient(client, clientId);
 
       // Update metrics
       if (config.enableMetrics) {
@@ -458,20 +509,52 @@ class MqttBroker {
         _metrics.activeConnections++;
       }
 
-      // Send successful CONNACK
+      // Send CONNACK
       final sessionPresent = !cleanSession && _persistentSessions.containsKey(clientId);
       await _sendConnack(client, 0x00, sessionPresent: sessionPresent);
 
-      // Send retained messages
-      for (final entry in _retainedMessages.entries) {
-        if (_topicSubscriptions[entry.key]?.contains(client) ?? false) {
-          await _sendPublish(client, entry.key, entry.value);
-        }
+      // Only after CONNACK is sent, resume message processing
+      await _qosHandler.resumeClientQueue(client, clientId);
+
+      // Restore subscriptions and send retained messages
+      if (sessionPresent) {
+        await _restoreSession(client, session);
       }
+
+      developer.log('Client $clientId connected successfully');
     } catch (e, stackTrace) {
       developer.log('Error handling CONNECT packet: $e\n$stackTrace');
       await _sendConnack(client, 0x04); // Bad format
-      return;
+    }
+  }
+
+  String _generateClientId() {
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    final random = Random();
+    final id = List.generate(23, (index) => chars[random.nextInt(chars.length)]).join();
+    return 'mqtt-${DateTime.now().millisecondsSinceEpoch}-$id';
+  }
+
+  Future<void> _restoreSession(MqttConnection client, MqttSession session) async {
+    // Restore subscriptions
+    for (final topic in session.qosLevels.keys) {
+      _topicSubscriptions.putIfAbsent(topic, () => {}).add(client);
+    }
+
+    // Send retained messages for subscribed topics
+    for (final entry in _retainedMessages.entries) {
+      if (session.qosLevels.containsKey(entry.key)) {
+        final subscribedQoS = session.qosLevels[entry.key] ?? 0;
+        final effectiveQoS = min(entry.value.qos, subscribedQoS);
+        
+        final message = MqttMessage(
+          entry.value.payload,
+          effectiveQoS,
+          true, // retained flag
+        );
+        
+        await _sendPublish(client, entry.key, message);
+      }
     }
   }
 
@@ -502,40 +585,61 @@ class MqttBroker {
 
   Future<void> _handlePublish(Uint8List data, MqttConnection client, int qos, bool retain) async {
     final session = _clientSessions[client];
-    if (session == null) return;
+    if (session == null) {
+      developer.log('No session found for publish');
+      return;
+    }
 
     try {
-      final ByteData byteData = ByteData.sublistView(data);
+      // Validate minimum packet length (fixed header + topic length bytes)
+      if (data.length < 4) {
+        developer.log('Invalid PUBLISH packet: too short');
+        return;
+      }
+
       int offset = 1;
+      // Skip remaining length bytes
+      while ((data[offset] & 0x80) != 0 && offset < 4) {
+        offset++;
+      }
+      offset++; // Move past the last remaining length byte
 
-      // Parse remaining length (variable byte integer)
-      int multiplier = 1;
-      int remainingLength = 0;
-      int byte;
-      do {
-        byte = byteData.getUint8(offset++);
-        remainingLength += (byte & 0x7F) * multiplier;
-        multiplier *= 128;
-      } while ((byte & 0x80) != 0);
+      // Ensure we have enough bytes for topic length
+      if (offset + 2 > data.length) {
+        developer.log('Invalid PUBLISH packet: insufficient data for topic length');
+        return;
+      }
 
-      // Parse variable header
-      // Topic name (UTF-8 encoded string)
-      int topicLength = byteData.getUint16(offset);
+      // Parse topic length
+      final topicLength = ((data[offset] << 8) | data[offset + 1]);
       offset += 2;
-      String topic = String.fromCharCodes(data.sublist(offset, offset + topicLength));
+
+      // Validate topic length
+      if (topicLength <= 0 || offset + topicLength > data.length) {
+        developer.log('Invalid PUBLISH packet: invalid topic length');
+        return;
+      }
+
+      // Parse topic
+      final topic = utf8.decode(
+        data.sublist(offset, offset + topicLength),
+        allowMalformed: false,
+      );
       offset += topicLength;
 
-      // Packet ID (only present if QoS > 0)
+      // Parse message ID for QoS > 0
       int messageId = 0;
       if (qos > 0) {
-        messageId = byteData.getUint16(offset);
+        if (offset + 2 > data.length) {
+          developer.log('Invalid PUBLISH packet: insufficient data for message ID');
+          return;
+        }
+        messageId = ((data[offset] << 8) | data[offset + 1]);
         offset += 2;
       }
 
       // Parse payload
-      Uint8List payload = Uint8List.sublistView(data, offset, data.length);
-
-      // Create message
+      final payload = data.sublist(offset);
       final message = MqttMessage(Uint8List.fromList(payload), qos, retain);
 
       // Handle retained messages
@@ -547,23 +651,38 @@ class MqttBroker {
         }
       }
 
-      // Get subscribers including the sender
-      final subscribers = (_topicSubscriptions[topic] ?? {}).toList();
+      // Get subscribers excluding the sender
+      final subscribers = (_topicSubscriptions[topic] ?? {})
+          .where((sub) => sub != client && sub.isConnected)
+          .toList();
+
+      developer.log('Publishing to ${subscribers.length} subscribers for topic: $topic');
 
       // Forward message to subscribers
       for (final subscriber in subscribers) {
-        if (!subscriber.isConnected) continue;
+        try {
+          final subscriberSession = _clientSessions[subscriber];
+          if (subscriberSession != null) {
+            final subscriberQoS = subscriberSession.qosLevels[topic] ?? 0;
+            final effectiveQoS = min(qos, subscriberQoS);
 
-        final subscriberSession = _clientSessions[subscriber];
-        if (subscriberSession != null) {
-          final subscriberQoS = subscriberSession.qosLevels[topic] ?? 0;
-          final effectiveQoS = min(qos, subscriberQoS);
-
-          await _sendPublish(subscriber, topic, MqttMessage(Uint8List.fromList(payload), effectiveQoS, false));
+            await _sendPublish(
+              subscriber, 
+              topic, 
+              MqttMessage(
+                Uint8List.fromList(payload),
+                effectiveQoS,
+                false
+              )
+            );
+          }
+        } catch (e) {
+          developer.log('Error forwarding message to subscriber: $e');
+          continue; // Continue with other subscribers if one fails
         }
       }
 
-      // Handle QoS acknowledgment
+      // Handle QoS acknowledgment for the publisher
       if (qos > 0) {
         await _qosHandler.handlePublishQos(
           client,
@@ -707,7 +826,7 @@ class MqttBroker {
     if (config.enableMetrics) {
       _metrics.activeConnections--;
     }
-
+    _qosHandler.unregisterClient(client);
     _clientSessions.remove(client);
     await client.disconnect();
   }
