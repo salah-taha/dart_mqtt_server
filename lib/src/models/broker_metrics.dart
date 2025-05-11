@@ -5,12 +5,18 @@ class BrokerMetrics {
   int messagesFailed = 0;
   Map<String, int> topicStats = {};
   Map<String, int> clientStats = {};
+  Map<String, int> failedStats = {};
   DateTime startTime = DateTime.now();
 
   void recordPublish(String topic, String clientId) {
     messagesPublished++;
     topicStats[topic] = (topicStats[topic] ?? 0) + 1;
     clientStats[clientId] = (clientStats[clientId] ?? 0) + 1;
+  }
+
+  void recordFailedPublish(String topic, String clientId) {
+    messagesFailed++;
+    failedStats[topic] = (failedStats[topic] ?? 0) + 1;
   }
 
   Map<String, dynamic> getMetricsSnapshot() {
@@ -22,6 +28,7 @@ class BrokerMetrics {
       'messages_failed': messagesFailed,
       'topic_stats': topicStats,
       'client_stats': clientStats,
+      'failed_stats': failedStats,
     };
   }
 }

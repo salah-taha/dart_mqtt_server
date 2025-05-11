@@ -7,9 +7,12 @@ import 'package:mqtt_server/src/mqtt_session.dart';
 
 class MqttConnection {
   final Socket _socket;
+  bool isConnected = false;
   MqttSession? session;
-  bool _isConnected = true;
   StreamSubscription? _subscription;
+  
+  void Function(List<int>)? _onData;
+  void Function()? _onDisconnect;
 
   MqttConnection(this._socket) {
     _socket.setOption(SocketOption.tcpNoDelay, true);
@@ -25,7 +28,7 @@ class MqttConnection {
   }
 
   void _handleData(List<int> data) {
-    if (!_isConnected) return;
+    if (!isConnected) return;
 
     try {
       // Instead of adding to controller, notify broker directly
@@ -50,9 +53,9 @@ class MqttConnection {
   }
 
   void _cleanupConnection() {
-    if (!_isConnected) return; // Already cleaned up
+    if (!isConnected) return; // Already cleaned up
 
-    _isConnected = false;
+    isConnected = false;
     _subscription?.cancel();
 
     try {
@@ -68,10 +71,6 @@ class MqttConnection {
     }
   }
 
-  // Callback setters for broker communication
-  void Function(List<int>)? _onData;
-  void Function()? _onDisconnect;
-
   void setCallbacks({
     required void Function(List<int>) onData,
     required void Function() onDisconnect,
@@ -80,10 +79,8 @@ class MqttConnection {
     _onDisconnect = onDisconnect;
   }
 
-  bool get isConnected => _isConnected;
-
   Future<void> send(Uint8List data) async {
-    if (!_isConnected) {
+    if (!isConnected) {
       developer.log('Attempting to send data when not connected');
       return;
     }

@@ -10,13 +10,12 @@ class MqttSession {
   int keepAlive;
   bool cleanSession;
 
-  MqttSession(this.clientId)
+  MqttSession(this.clientId, this.cleanSession)
       : lastActivity = DateTime.now(),
-        keepAlive = 60,
-        cleanSession = true;
+        keepAlive = 60;
 
   factory MqttSession.fromPersistentData(String clientId, Map<String, dynamic> data) {
-    final session = MqttSession(clientId);
+    final session = MqttSession(clientId, data['cleanSession'] ?? true);
     
     if (data.containsKey('qosLevels')) {
       final qosMap = data['qosLevels'] as Map<String, dynamic>;

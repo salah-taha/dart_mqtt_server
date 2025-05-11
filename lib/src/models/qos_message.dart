@@ -4,7 +4,7 @@ import 'package:mqtt_server/src/models/mqtt_message.dart';
 class QosMessage {
   final String topic;
   final MqttMessage message;
-  final int messageId;
+  final String messageId;
   final String clientId;
   QosMessageState state;
   DateTime timestamp;
