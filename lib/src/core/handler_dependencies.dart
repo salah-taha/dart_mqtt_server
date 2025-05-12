@@ -34,4 +34,7 @@ abstract class HandlerDependencies {
   
   /// Get broker configuration
   bool get allowAnonymousConnections;
+
+  /// Queue a message for an offline client
+  void queueMessage(String clientId, String topic, List<int> payload, int qos);
 }

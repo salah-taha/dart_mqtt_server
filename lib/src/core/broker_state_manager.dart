@@ -69,28 +69,41 @@ class BrokerStateManager implements HandlerDependencies {
 
     final connection = _connections[clientId]!;
     final session = _sessions[clientId];
-    if (session == null || !session.cleanSession) return;
+    if (session == null) return;
 
     final messages = _queuedMessages[clientId]!;
+    final remainingMessages = <MqttMessage>[];
+
     for (var message in messages) {
       try {
-        connection.send(message.payload);
-        
-        // If QoS > 0, track the message as in-flight
-        if (message.qos > 0) {
-          _inFlightMessages
-              .putIfAbsent(clientId, () => <int, MqttMessage>{})
-              .putIfAbsent(messages.indexOf(message), () => message);
+        // For clean session, send all messages
+        // For non-clean session, only send QoS 1 and 2 messages
+        if (session.cleanSession || message.qos > 0) {
+          connection.send(message.payload);
+
+          // If QoS > 0, track the message as in-flight
+          if (message.qos > 0) {
+            _inFlightMessages.putIfAbsent(clientId, () => <int, MqttMessage>{}).putIfAbsent(messages.indexOf(message), () => message);
+          }
+        } else {
+          // Keep QoS 0 messages in queue for non-clean sessions
+          remainingMessages.add(message);
         }
       } catch (e) {
         developer.log('Error sending queued message to client $clientId: $e');
-        // If there's an error, keep the message in queue and stop processing
+        // If there's an error, keep remaining messages in queue and stop processing
+        remainingMessages.addAll(messages.sublist(messages.indexOf(message)));
+        _queuedMessages[clientId] = remainingMessages;
         return;
       }
     }
 
-    // Clear the queue after successful delivery
-    _queuedMessages.remove(clientId);
+    // Update or clear the queue
+    if (remainingMessages.isEmpty) {
+      _queuedMessages.remove(clientId);
+    } else {
+      _queuedMessages[clientId] = remainingMessages;
+    }
   }
 
   // Stats getters
@@ -569,7 +582,10 @@ class BrokerStateManager implements HandlerDependencies {
     return _credentials;
   }
 
-
+  @override
+  void queueMessage(String clientId, String topic, List<int> payload, int qos) {
+    _queueMessage(clientId, topic, Uint8List.fromList(payload), qos);
+  }
 }
 
 /// Represents a connection event type

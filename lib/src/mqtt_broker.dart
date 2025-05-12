@@ -59,7 +59,12 @@ class MqttBroker implements HandlerDependencies {
   
   @override
   Map<String, MqttCredentials> getCredentials() {
-    return _stateManager.credentials;
+    return _stateManager.getCredentials();
+  }
+
+  @override
+  void queueMessage(String clientId, String topic, List<int> payload, int qos) {
+    _stateManager.queueMessage(clientId, topic, payload, qos);
   }
   
   @override

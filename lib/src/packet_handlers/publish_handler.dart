@@ -38,10 +38,16 @@ class PublishHandler extends PacketHandlerBase {
         if (subscriberSession == null) continue;
         
         final subscriberConnection = _getConnection(subscriberId);
-        if (subscriberConnection == null || !subscriberConnection.isConnected) continue;
-        
         final subscriberQos = subscriberSession.qosLevels[topic] ?? 0;
         final effectiveQos = qos < subscriberQos ? qos : subscriberQos;
+
+        // If QoS > 0 , queue the message for message delivery
+        if (effectiveQos > 0) {
+          deps.queueMessage(subscriberId, topic, payload, effectiveQos);
+        }
+
+        // Skip if subscriber is offline and QoS is 0
+        if (subscriberConnection == null || !subscriberConnection.isConnected) continue;
 
         int? messageId;
         if (effectiveQos > 0) {
