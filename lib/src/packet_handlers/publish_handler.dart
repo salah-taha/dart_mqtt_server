@@ -1,19 +1,21 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:mqtt_server/mqtt_server.dart';
 import 'package:mqtt_server/src/core/packet_handler_base.dart';
 import 'package:mqtt_server/src/models/mqtt_connection.dart';
 import 'package:mqtt_server/src/models/mqtt_message.dart';
 
 
 class PublishHandler extends PacketHandlerBase {
-  PublishHandler(super.deps);
+  final MqttBroker _broker;
+  PublishHandler(this._broker);
 
   @override
   Future<void> handle(Uint8List data, MqttConnection connection, {int qos = 0, bool retain = false}) async {
     if (connection.clientId == null) return;
 
-    final session = deps.getSession(connection.clientId);
+    final session = _broker.stateManager.getSession(connection.clientId);
     if (session == null) {
       return;
     }
@@ -34,7 +36,7 @@ class PublishHandler extends PacketHandlerBase {
 
     if (subscriberIds.isNotEmpty) {
       for (final subscriberId in subscriberIds) {
-        final subscriberSession = deps.getSession(subscriberId);
+        final subscriberSession = _broker.stateManager.getSession(subscriberId);
         if (subscriberSession == null) continue;
         
         final subscriberConnection = _getConnection(subscriberId);
@@ -43,7 +45,7 @@ class PublishHandler extends PacketHandlerBase {
 
         // If QoS > 0 , queue the message for message delivery
         if (effectiveQos > 0) {
-          deps.queueMessage(subscriberId, topic, payload, effectiveQos);
+          _broker.stateManager.queueMessage(subscriberId, topic, payload, effectiveQos);
         }
 
         // Skip if subscriber is offline and QoS is 0
@@ -100,9 +102,9 @@ class PublishHandler extends PacketHandlerBase {
   void _handleRetainedMessage(String topic, Uint8List payload, bool retain, MqttMessage message) {
     if (retain) {
       if (payload.isEmpty) {
-        deps.retainedMessages.remove(topic);
+        _broker.stateManager.retainedMessages.remove(topic);
       } else {
-        deps.retainedMessages[topic] = message;
+        _broker.stateManager.retainedMessages[topic] = message;
       }
     }
   }
@@ -110,7 +112,7 @@ class PublishHandler extends PacketHandlerBase {
   Set<String> _getSubscribersForTopic(String topic) {
     final subscribers = <String>{};
 
-    for (final entry in deps.topicSubscriptions.entries) {
+    for (final entry in _broker.stateManager.topicSubscriptions.entries) {
       // Quick check for direct match
       if (entry.key == topic) {
         subscribers.addAll(entry.value);
@@ -130,7 +132,7 @@ class PublishHandler extends PacketHandlerBase {
   }
 
   MqttConnection? _getConnection(String clientId) {
-    return deps.clientConnections[clientId];
+    return _broker.stateManager.clientConnections[clientId];
   }
 
   bool _matchTopicPattern(String topic, String pattern) {

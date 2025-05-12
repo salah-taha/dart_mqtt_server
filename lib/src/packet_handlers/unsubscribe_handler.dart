@@ -1,17 +1,19 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:mqtt_server/mqtt_server.dart';
 import 'package:mqtt_server/src/core/packet_handler_base.dart';
 import 'package:mqtt_server/src/models/mqtt_connection.dart';
 
 class UnsubscribeHandler extends PacketHandlerBase {
-  UnsubscribeHandler(super.deps);
+  final MqttBroker _broker;
+  UnsubscribeHandler(this._broker);
 
   @override
   Future<void> handle(Uint8List data, MqttConnection connection, {int qos = 0, bool retain = false}) async {
     if (connection.clientId == null) return;
     
-    final session = deps.getSession(connection.clientId)!;
+    final session = _broker.stateManager.getSession(connection.clientId)!;
     final messageId = ((data[2] << 8) | data[3]);
     var pos = 4;
 
@@ -30,11 +32,11 @@ class UnsubscribeHandler extends PacketHandlerBase {
       session.qosLevels.remove(topic);
 
       // Remove client from topic subscribers
-      deps.topicSubscriptions[topic]?.remove(connection.clientId);
+      _broker.stateManager.topicSubscriptions[topic]?.remove(connection.clientId);
 
       // Clean up empty topic subscriptions
-      if (deps.topicSubscriptions[topic]?.isEmpty ?? false) {
-        deps.topicSubscriptions.remove(topic);
+      if (_broker.stateManager.topicSubscriptions[topic]?.isEmpty ?? false) {
+        _broker.stateManager.topicSubscriptions.remove(topic);
       }
     }
 

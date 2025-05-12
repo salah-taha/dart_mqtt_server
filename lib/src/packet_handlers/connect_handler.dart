@@ -9,7 +9,8 @@ import 'package:mqtt_server/src/mqtt_broker.dart';
 
 
 class ConnectHandler extends PacketHandlerBase {
-  ConnectHandler(super.deps);
+  final MqttBroker _broker;
+  ConnectHandler(this._broker);
 
   @override
   Future<void> handle(Uint8List data, MqttConnection connection, {int qos = 0, bool retain = false}) async {
@@ -92,7 +93,7 @@ class ConnectHandler extends PacketHandlerBase {
       // Handle authentication
       String? username;
       String? password;
-      if (!MqttBroker.config.allowAnonymous) {
+      if (!_broker.config.allowAnonymous) {
         if (usernameFlag) {
           if (pos + 2 > data.length) {
             await _sendConnack(connection, 0x04);
@@ -137,7 +138,7 @@ class ConnectHandler extends PacketHandlerBase {
 
       // Create session and associate with connection
       final session = MqttSession(clientId, cleanSession);
-      deps.addSession(clientId, session);
+      _broker.stateManager.addSession(clientId, session);
       connection.clientId = clientId;
 
       // Send CONNACK
@@ -145,10 +146,10 @@ class ConnectHandler extends PacketHandlerBase {
 
       connection.isConnected = true;
 
-      deps.clientConnections[clientId] = connection;
+      _broker.stateManager.clientConnections[clientId] = connection;
       
       // Process any stored messages for this client
-      deps.processQueuedMessages(clientId);
+      _broker.stateManager.processQueuedMessages(clientId);
     } catch (e) {
       await _sendConnack(connection, 0x04);
     }
@@ -160,10 +161,10 @@ class ConnectHandler extends PacketHandlerBase {
   }
 
   bool _authenticate(String? username, String? password) {
-    if (MqttBroker.config.allowAnonymous) return true;
+    if (_broker.config.allowAnonymous) return true;
     if (username == null || password == null) return false;
     
-    final credentials = deps.getCredentials();
+    final credentials = _broker.stateManager.getCredentials();
     if (!credentials.containsKey(username)) return false;
     
     final storedCredentials = credentials[username]!;

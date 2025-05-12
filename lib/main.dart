@@ -24,8 +24,8 @@ void main() async {
 
     // Add users if authentication is enabled
     if (config.authenticationRequired) {
-      broker.addUser('admin', 'secure_password');
-      broker.addUser('user1', 'password123');
+      broker.stateManager.addUser('admin', 'secure_password');
+      broker.stateManager.addUser('user1', 'password123');
     }
 
     log('Broker is running. Press Ctrl+C to stop.');

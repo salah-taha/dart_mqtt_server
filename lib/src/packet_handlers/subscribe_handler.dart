@@ -4,15 +4,17 @@ import 'dart:typed_data';
 import 'package:mqtt_server/src/core/packet_handler_base.dart';
 import 'package:mqtt_server/src/models/mqtt_connection.dart';
 import 'package:mqtt_server/src/models/mqtt_message.dart';
+import 'package:mqtt_server/src/mqtt_broker.dart';
 
 class SubscribeHandler extends PacketHandlerBase {
-  SubscribeHandler(super.deps);
+  final MqttBroker _broker;
+  SubscribeHandler(this._broker);
 
   @override
   Future<void> handle(Uint8List data, MqttConnection connection, {int qos = 0, bool retain = false}) async {
     if (connection.clientId == null) return;
     
-    final session = deps.getSession(connection.clientId)!;
+    final session = _broker.stateManager.getSession(connection.clientId)!;
     final messageId = ((data[2] << 8) | data[3]);
     var pos = 4;
 
@@ -37,7 +39,7 @@ class SubscribeHandler extends PacketHandlerBase {
       session.qosLevels[topic] = requestedQos;
 
       // Add client to topic subscribers
-      deps.topicSubscriptions.putIfAbsent(topic, () => <String>{}).add(connection.clientId!);
+      _broker.stateManager.topicSubscriptions.putIfAbsent(topic, () => <String>{}).add(connection.clientId!);
 
       // Send retained messages for this topic
       _sendRetainedMessages(topic, connection, session);
@@ -60,7 +62,7 @@ class SubscribeHandler extends PacketHandlerBase {
   }
 
   void _sendRetainedMessages(String subscribedTopic, MqttConnection connection, session) {
-    for (final entry in deps.retainedMessages.entries) {
+    for (final entry in _broker.stateManager.retainedMessages.entries) {
       final topic = entry.key;
       final message = entry.value;
 

@@ -1,5 +1,5 @@
 import 'dart:typed_data';
-import 'package:mqtt_server/src/mqtt_broker.dart';
+import 'package:mqtt_server/mqtt_server.dart';
 import 'package:mqtt_server/src/models/mqtt_connection.dart';
 import 'package:mqtt_server/src/core/packet_handler_base.dart';
 import 'package:mqtt_server/src/packet_handlers/connect_handler.dart';
@@ -14,8 +14,8 @@ import 'package:mqtt_server/src/packet_handlers/subscribe_handler.dart';
 import 'package:mqtt_server/src/packet_handlers/unsubscribe_handler.dart';
 
 class PacketHandlerRegistry {
-  final Map<int, PacketHandlerBase> _handlers = {};
   final MqttBroker _broker;
+  final Map<int, PacketHandlerBase> _handlers = {};
 
   PacketHandlerRegistry(this._broker) {
     _initializeHandlers();

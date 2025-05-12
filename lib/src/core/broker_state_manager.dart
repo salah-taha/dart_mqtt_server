@@ -14,6 +14,10 @@ import 'connections_manager.dart';
 /// Manages the state of the MQTT broker, including connections, sessions, and subscriptions.
 /// This class centralizes all state management to make it easier to maintain and extend.
 class BrokerStateManager {
+  final MqttBroker _broker;
+
+  BrokerStateManager(this._broker);
+
   final ConnectionsManager _connectionsManager = ConnectionsManager();
 
   final Map<String, MqttMessage> _retainedMessages = {};
@@ -44,7 +48,7 @@ class BrokerStateManager {
 
   Map<String, MqttCredentials> get credentials => _credentials;
 
-  bool get allowAnonymousConnections => MqttBroker.config.allowAnonymous;
+  bool get allowAnonymousConnections => _broker.config.allowAnonymous;
 
   void processQueuedMessages(String clientId) {
     if (!_queuedMessages.containsKey(clientId)) return;
@@ -234,7 +238,7 @@ class BrokerStateManager {
     }
 
     // Limit queue size to prevent memory issues
-    final maxQueueSize = MqttBroker.config.maxQueueSize;
+    final maxQueueSize = _broker.config.maxQueueSize;
     if (_queuedMessages[clientId]!.length > maxQueueSize) {
       // Remove oldest messages when queue is full, but preserve QoS 1 and 2 messages
       _queuedMessages[clientId]!.removeWhere((msg) => msg.qos == 0);
@@ -311,7 +315,7 @@ class BrokerStateManager {
 
   /// Authenticates a user
   bool authenticate(String? username, String? password) {
-    if (MqttBroker.config.allowAnonymous) return true;
+    if (_broker.config.allowAnonymous) return true;
     if (username == null || password == null) return false;
 
     final credential = _credentials[username];
@@ -327,7 +331,7 @@ class BrokerStateManager {
     // Clean up expired sessions
     final expiredSessions = <String>[];
     sessions.forEach((clientId, session) {
-      if (now.difference(session.lastActivity) > MqttBroker.config.sessionExpiryInterval) {
+      if (now.difference(session.lastActivity) > _broker.config.sessionExpiryInterval) {
         expiredSessions.add(clientId);
       }
     });
@@ -347,7 +351,7 @@ class BrokerStateManager {
     _inFlightMessages.forEach((clientId, messages) {
       final expiredMessageIds = <int>[];
       messages.forEach((messageId, message) {
-        if (now.difference(message.timestamp) > MqttBroker.config.messageExpiryInterval) {
+        if (now.difference(message.timestamp) > _broker.config.messageExpiryInterval) {
           expiredMessageIds.add(messageId);
         }
       });
@@ -361,9 +365,9 @@ class BrokerStateManager {
   /// Saves persistent sessions to disk
   Future<void> savePersistentSessions() async {
     try {
-      if (!MqttBroker.config.enablePersistence) return;
+      if (!_broker.config.enablePersistence) return;
 
-      final file = File(MqttBroker.config.persistencePath);
+      final file = File(_broker.config.persistencePath);
       final persistentSessions = <String, Map<String, dynamic>>{};
 
       // Only save persistent sessions
@@ -395,9 +399,9 @@ class BrokerStateManager {
   /// Loads persistent sessions from disk
   Future<void> loadPersistentSessions() async {
     try {
-      if (!MqttBroker.config.enablePersistence) return;
+      if (!_broker.config.enablePersistence) return;
 
-      final file = File(MqttBroker.config.persistencePath);
+      final file = File(_broker.config.persistencePath);
       if (await file.exists()) {
         final content = await file.readAsString();
         final data = jsonDecode(content) as Map<String, dynamic>;
