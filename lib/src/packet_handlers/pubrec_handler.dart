@@ -1,16 +1,18 @@
 import 'dart:typed_data';
-import '../mqtt_connection.dart';
-import '../mqtt_broker.dart';
-import 'packet_handler_base.dart';
+
+import 'package:mqtt_server/src/core/packet_handler_base.dart';
+import 'package:mqtt_server/src/models/mqtt_connection.dart';
+
 
 class PubrecHandler extends PacketHandlerBase {
-  PubrecHandler(MqttBroker broker) : super(broker);
+  PubrecHandler(super.deps);
 
   @override
-  Future<void> handle(Uint8List data, MqttConnection client, {int qos = 0, bool retain = false}) async {
+  Future<void> handle(Uint8List data, MqttConnection connection, {int qos = 0, bool retain = false}) async {
     if (data.length < 4) return;
+    if (connection.clientId == null) return;
 
-    final session = deps.getSession(client);
+    final session = deps.getSession(connection.clientId);
     if (session == null) return;
 
     // Send PUBREL
@@ -20,7 +22,7 @@ class PubrecHandler extends PacketHandlerBase {
     pubrelPacket[2] = data[2]; // Message ID MSB
     pubrelPacket[3] = data[3]; // Message ID LSB
 
-    await client.send(pubrelPacket);
+    await connection.send(pubrelPacket);
     session.lastActivity = DateTime.now();
   }
 }

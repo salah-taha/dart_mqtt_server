@@ -1,15 +1,19 @@
 import 'dart:convert';
 import 'dart:typed_data';
-import '../mqtt_connection.dart';
-import '../models/mqtt_message.dart';
-import 'packet_handler_base.dart';
+
+import 'package:mqtt_server/src/core/packet_handler_base.dart';
+import 'package:mqtt_server/src/models/mqtt_connection.dart';
+import 'package:mqtt_server/src/models/mqtt_message.dart';
+
 
 class PublishHandler extends PacketHandlerBase {
   PublishHandler(super.deps);
 
   @override
-  Future<void> handle(Uint8List data, MqttConnection client, {int qos = 0, bool retain = false}) async {
-    final session = deps.getSession(client);
+  Future<void> handle(Uint8List data, MqttConnection connection, {int qos = 0, bool retain = false}) async {
+    if (connection.clientId == null) return;
+
+    final session = deps.getSession(connection.clientId);
     if (session == null) {
       return;
     }
@@ -21,18 +25,21 @@ class PublishHandler extends PacketHandlerBase {
 
     final topic = extractResult['topic'] as String;
     final payload = extractResult['payload'] as Uint8List;
-    final message = MqttMessage(payload, qos, retain);
+    final message = MqttMessage(payload, qos, retain, DateTime.now());
 
     _handleRetainedMessage(topic, payload, retain, message);
 
     // Get active subscribers for this topic
-    final subscribers = _getSubscribersForTopic(topic).where((sub) => sub.isConnected).toSet();
+    final subscriberIds = _getSubscribersForTopic(topic);
 
-    if (subscribers.isNotEmpty) {
-      for (final subscriber in subscribers) {
-        final subscriberSession = deps.getSession(subscriber);
+    if (subscriberIds.isNotEmpty) {
+      for (final subscriberId in subscriberIds) {
+        final subscriberSession = deps.getSession(subscriberId);
         if (subscriberSession == null) continue;
-
+        
+        final subscriberConnection = _getConnection(subscriberId);
+        if (subscriberConnection == null || !subscriberConnection.isConnected) continue;
+        
         final subscriberQos = subscriberSession.qosLevels[topic] ?? 0;
         final effectiveQos = qos < subscriberQos ? qos : subscriberQos;
 
@@ -48,7 +55,7 @@ class PublishHandler extends PacketHandlerBase {
           subscriberSession.clientId,
         );
 
-        await subscriber.send(packet);
+        await subscriberConnection.send(packet);
       }
     }
 
@@ -94,8 +101,8 @@ class PublishHandler extends PacketHandlerBase {
     }
   }
 
-  Set<MqttConnection> _getSubscribersForTopic(String topic) {
-    final subscribers = <MqttConnection>{};
+  Set<String> _getSubscribersForTopic(String topic) {
+    final subscribers = <String>{};
 
     for (final entry in deps.topicSubscriptions.entries) {
       // Quick check for direct match
@@ -114,6 +121,10 @@ class PublishHandler extends PacketHandlerBase {
     }
 
     return subscribers;
+  }
+
+  MqttConnection? _getConnection(String clientId) {
+    return deps.clientConnections[clientId];
   }
 
   bool _matchTopicPattern(String topic, String pattern) {

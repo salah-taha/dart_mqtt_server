@@ -1,16 +1,18 @@
 import 'dart:typed_data';
-import '../mqtt_connection.dart';
-import '../mqtt_broker.dart';
-import 'packet_handler_base.dart';
+
+import 'package:mqtt_server/src/core/packet_handler_base.dart';
+import 'package:mqtt_server/src/models/mqtt_connection.dart';
+
 
 class PubackHandler extends PacketHandlerBase {
-  PubackHandler(MqttBroker broker) : super(broker);
+  PubackHandler(super.deps);
 
   @override
-  Future<void> handle(Uint8List data, MqttConnection client, {int qos = 0, bool retain = false}) async {
+  Future<void> handle(Uint8List data, MqttConnection connection, {int qos = 0, bool retain = false}) async {
     if (data.length < 4) return;
+    if (connection.clientId == null) return;
 
-    final session = deps.getSession(client);
+    final session = deps.getSession(connection.clientId);
     if (session == null) return;
 
     final messageId = ((data[2] << 8) | data[3]);

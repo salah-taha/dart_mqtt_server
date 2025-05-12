@@ -1,14 +1,17 @@
 import 'dart:convert';
 import 'dart:typed_data';
-import '../mqtt_connection.dart';
-import 'packet_handler_base.dart';
+
+import 'package:mqtt_server/src/core/packet_handler_base.dart';
+import 'package:mqtt_server/src/models/mqtt_connection.dart';
 
 class UnsubscribeHandler extends PacketHandlerBase {
   UnsubscribeHandler(super.deps);
 
   @override
-  Future<void> handle(Uint8List data, MqttConnection client, {int qos = 0, bool retain = false}) async {
-    final session = deps.getSession(client)!;
+  Future<void> handle(Uint8List data, MqttConnection connection, {int qos = 0, bool retain = false}) async {
+    if (connection.clientId == null) return;
+    
+    final session = deps.getSession(connection.clientId)!;
     final messageId = ((data[2] << 8) | data[3]);
     var pos = 4;
 
@@ -27,7 +30,7 @@ class UnsubscribeHandler extends PacketHandlerBase {
       session.qosLevels.remove(topic);
 
       // Remove client from topic subscribers
-      deps.topicSubscriptions[topic]?.remove(client);
+      deps.topicSubscriptions[topic]?.remove(connection.clientId);
 
       // Clean up empty topic subscriptions
       if (deps.topicSubscriptions[topic]?.isEmpty ?? false) {
@@ -37,7 +40,7 @@ class UnsubscribeHandler extends PacketHandlerBase {
 
     // Send UNSUBACK
     final unsuback = Uint8List.fromList([0xB0, 0x02, (messageId >> 8) & 0xFF, messageId & 0xFF]);
-    await client.send(unsuback);
+    await connection.send(unsuback);
 
     session.lastActivity = DateTime.now();
   }

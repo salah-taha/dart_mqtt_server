@@ -1,15 +1,18 @@
 import 'dart:convert';
 import 'dart:typed_data';
-import '../mqtt_connection.dart';
-import '../models/mqtt_message.dart';
-import 'packet_handler_base.dart';
+
+import 'package:mqtt_server/src/core/packet_handler_base.dart';
+import 'package:mqtt_server/src/models/mqtt_connection.dart';
+import 'package:mqtt_server/src/models/mqtt_message.dart';
 
 class SubscribeHandler extends PacketHandlerBase {
   SubscribeHandler(super.deps);
 
   @override
-  Future<void> handle(Uint8List data, MqttConnection client, {int qos = 0, bool retain = false}) async {
-    final session = deps.getSession(client)!;
+  Future<void> handle(Uint8List data, MqttConnection connection, {int qos = 0, bool retain = false}) async {
+    if (connection.clientId == null) return;
+    
+    final session = deps.getSession(connection.clientId)!;
     final messageId = ((data[2] << 8) | data[3]);
     var pos = 4;
 
@@ -34,10 +37,10 @@ class SubscribeHandler extends PacketHandlerBase {
       session.qosLevels[topic] = requestedQos;
 
       // Add client to topic subscribers
-      deps.topicSubscriptions.putIfAbsent(topic, () => <MqttConnection>{}).add(client);
+      deps.topicSubscriptions.putIfAbsent(topic, () => <String>{}).add(connection.clientId!);
 
       // Send retained messages for this topic
-      _sendRetainedMessages(topic, client, session);
+      _sendRetainedMessages(topic, connection, session);
     }
 
     // Send SUBACK
@@ -51,12 +54,12 @@ class SubscribeHandler extends PacketHandlerBase {
       suback[4 + i] = grantedQos[i];
     }
 
-    await client.send(suback);
+    await connection.send(suback);
 
     session.lastActivity = DateTime.now();
   }
 
-  void _sendRetainedMessages(String subscribedTopic, MqttConnection client, session) {
+  void _sendRetainedMessages(String subscribedTopic, MqttConnection connection, session) {
     for (final entry in deps.retainedMessages.entries) {
       final topic = entry.key;
       final message = entry.value;
@@ -77,7 +80,7 @@ class SubscribeHandler extends PacketHandlerBase {
           session.clientId,
         );
 
-        client.send(packet);
+        connection.send(packet);
       }
     }
   }

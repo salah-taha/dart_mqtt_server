@@ -1,66 +1,84 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:developer' as developer;
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:mqtt_server/src/core/broker_state_manager.dart';
+import 'package:mqtt_server/src/core/handler_dependencies.dart';
+import 'package:mqtt_server/src/core/packet_handler_registry.dart';
+import 'package:mqtt_server/src/models/mqtt_broker_config.dart';
+import 'package:mqtt_server/src/models/mqtt_message.dart';
+import 'package:mqtt_server/src/models/mqtt_connection.dart';
+import 'package:mqtt_server/src/models/mqtt_session.dart';
+import 'package:mqtt_server/src/models/mqtt_credentials.dart';
 
-import 'models/broker_publish_event.dart';
-import 'models/mqtt_broker_config.dart';
-import 'models/mqtt_message.dart';
-import 'mqtt_connection.dart';
-import 'mqtt_session.dart';
-import 'packet_handlers/handler_dependencies.dart';
-import 'packet_handlers/packet_handler_registry.dart';
-
-class MqttCredentials {
-  final String username;
-  final String hashedPassword;
-
-  MqttCredentials(this.username, this.hashedPassword);
-}
 
 class MqttBroker implements HandlerDependencies {
-  final MqttBrokerConfig config;
-  final Map<String, Set<MqttConnection>> _topicSubscriptions = {};
-  final Map<MqttConnection, MqttSession> _clientSessions = {};
-  final Map<String, MqttCredentials> _credentials = {};
-  final Map<String, MqttMessage> _retainedMessages = {};
-  final Map<String, Map<int, MqttMessage>> _inFlightMessages = {};
-  final Map<String, int> _clientConnectionCount = {};
+  // Configuration
+  static MqttBrokerConfig config = MqttBrokerConfig();
 
+  // State manager
+  final BrokerStateManager _stateManager = BrokerStateManager();
+
+  // Server infrastructure
   ServerSocket? _server;
   SecureServerSocket? _secureServer;
   Timer? _maintenanceTimer;
   bool _isRunning = false;
 
-  // Persistence
-  final Map<String, Map<String, dynamic>> _persistentSessions = {};
-
-  Map<MqttConnection, MqttSession> get clientSessions => _clientSessions;
-  Map<String, MqttCredentials> get credentials => _credentials;
-  @override
-  Map<String, MqttMessage> get retainedMessages => _retainedMessages;
-  @override
-  Map<String, Set<MqttConnection>> get topicSubscriptions => _topicSubscriptions;
-  @override
-  Map<String, Map<int, MqttMessage>> get inFlightMessages => _inFlightMessages;
-
-  @override
-  MqttSession? getSession(MqttConnection client) => _clientSessions[client];
-
-  @override
-  void removeSession(MqttConnection client) {
-    _clientSessions.remove(client);
-  }
-
+  // Handler registry
   late final PacketHandlerRegistry _packetHandlerRegistry;
 
-  // Event system for publish events
-  final StreamController<BrokerPublishEvent> _publishController = StreamController.broadcast();
-  Stream<BrokerPublishEvent> get publishStream => _publishController.stream;
+  // Implement HandlerDependencies interface
+  @override
+  Map<String, MqttMessage> get retainedMessages => _stateManager.retainedMessages;
+  
+  @override
+  Map<String, Set<String>> get topicSubscriptions => _stateManager.topicSubscriptions;
 
-  MqttBroker(this.config) {
+  @override
+  Map<String, Map<int, MqttMessage>> get inFlightMessages => _stateManager.inFlightMessages;
+
+  @override
+  Map<String, MqttConnection> get clientConnections => _stateManager.connections;
+
+  @override
+  MqttSession? getSession(String? clientId) {
+    return _stateManager.getSession(clientId);
+  }
+
+  @override
+  void removeSession(String clientId) {
+    _stateManager.removeSession(clientId);
+  }
+  
+  @override
+  void addSession(String clientId, MqttSession session) {
+    _stateManager.addSession(clientId, session);
+  }
+  
+  @override
+  Map<String, MqttCredentials> getCredentials() {
+    return _stateManager.credentials;
+  }
+  
+  @override
+  void processQueuedMessages(String clientId) {
+    _stateManager.processQueuedMessages(clientId);
+  }
+  
+  @override
+  bool get allowAnonymousConnections => config.allowAnonymous;
+
+  // Public getters for broker state
+  Map<String, MqttSession> get clientSessions => _stateManager.sessions;
+  Map<String, MqttCredentials> get credentials => _stateManager.credentials;
+
+
+  MqttBroker([MqttBrokerConfig? brokerConfig]) {
+    if (brokerConfig != null) {
+      MqttBroker.config = brokerConfig;
+    }
     _packetHandlerRegistry = PacketHandlerRegistry(this);
   }
 
@@ -71,24 +89,16 @@ class MqttBroker implements HandlerDependencies {
   }
 
   void _performMaintenance() {
-    final now = DateTime.now();
-
-    // Clean up expired sessions
-    _clientSessions.forEach((client, session) {
-      if (now.difference(session.lastActivity) > config.sessionExpiryInterval) {
-        disconnectClient(client);
-      }
-    });
-
-    // Save current state
-    _savePersistentSessions();
+    // Delegate maintenance to state manager
+    _stateManager.performMaintenance();
+    
+    // Save persistent sessions
+    _stateManager.savePersistentSessions();
   }
 
   void addUser(String username, String password) {
-    _credentials[username] = MqttCredentials(username, password);
+    _stateManager.addUser(username, password);
   }
-
-  // Persistence methods are implemented below
 
   Future<void> start() async {
     if (_isRunning) {
@@ -96,32 +106,32 @@ class MqttBroker implements HandlerDependencies {
     }
 
     try {
-      if (config.useSSL) {
-        if (config.sslCertPath == null || config.sslKeyPath == null) {
+      if (MqttBroker.config.useSSL) {
+        if (MqttBroker.config.sslCertPath == null || MqttBroker.config.sslKeyPath == null) {
           throw ArgumentError('Certificate and private key paths are required for SSL');
         }
 
         SecurityContext context = SecurityContext()
-          ..useCertificateChain(config.sslCertPath!)
-          ..usePrivateKey(config.sslKeyPath!);
+          ..useCertificateChain(MqttBroker.config.sslCertPath!)
+          ..usePrivateKey(MqttBroker.config.sslKeyPath!);
 
         _secureServer = await SecureServerSocket.bind(
           InternetAddress.anyIPv4,
-          config.port,
+          MqttBroker.config.port,
           context,
           shared: true,
         );
 
-        developer.log('MQTT Broker listening securely on port ${config.port}');
+        developer.log('MQTT Broker listening securely on port ${MqttBroker.config.port}');
         _secureServer!.listen(_handleConnection);
       } else {
         _server = await ServerSocket.bind(
           InternetAddress.anyIPv4,
-          config.port,
+          MqttBroker.config.port,
           shared: true,
         );
 
-        developer.log('MQTT Broker listening on port ${config.port}');
+        developer.log('MQTT Broker listening on port ${MqttBroker.config.port}');
         _server!.listen(_handleConnection);
       }
 
@@ -135,49 +145,21 @@ class MqttBroker implements HandlerDependencies {
     }
   }
 
-  Future<void> _savePersistentSessions() async {
-    try {
-      if (!config.enablePersistence) return;
-      final file = File(config.persistencePath);
-      final data = jsonEncode(_persistentSessions);
-      await file.writeAsString(data);
-    } catch (e) {
-      developer.log('Error saving persistent sessions: $e');
-    }
-  }
-
   Future<void> _loadPersistentSessions() async {
-    try {
-      if (!config.enablePersistence) return;
-
-      final file = File(config.persistencePath);
-      if (await file.exists()) {
-        final content = await file.readAsString();
-        final data = jsonDecode(content) as Map<String, dynamic>;
-
-        _persistentSessions.clear();
-        data.forEach((key, value) {
-          _persistentSessions[key] = value as Map<String, dynamic>;
-        });
-
-        developer.log('Loaded ${_persistentSessions.length} persistent sessions');
-      }
-    } catch (e) {
-      developer.log('Error loading persistent sessions: $e');
-    }
+    await _stateManager.loadPersistentSessions();
   }
 
   void _handleConnection(Socket socket) {
     developer.log('New client connected: ${socket.remoteAddress.address}:${socket.remotePort}');
 
-    final client = MqttConnection(socket);
-    _setupClientHandlers(client);
+    final connection = MqttConnection(socket);
+    _setupClientHandlers(connection);
   }
 
-  void _setupClientHandlers(MqttConnection client) {
+  void _setupClientHandlers(MqttConnection connection) {
     var buffer = <int>[];
 
-    client.setCallbacks(
+    connection.setCallbacks(
       onData: (data) {
         try {
           buffer.addAll(data);
@@ -193,18 +175,17 @@ class MqttBroker implements HandlerDependencies {
             buffer = buffer.sublist(totalLength);
 
             // Process immediately instead of scheduling
-            if (client.isConnected) {
-              _handleMqttPacket(packetData, client);
-            }
+            _handleMqttPacket(packetData, connection);
+            
           }
         } catch (e, stackTrace) {
           developer.log('Error processing data: $e');
           developer.log('Stack trace: $stackTrace');
-          disconnectClient(client);
+          _disconnectClient(connection);
         }
       },
       onDisconnect: () {
-        disconnectClient(client);
+        _disconnectClient(connection);
       },
     );
   }
@@ -212,67 +193,71 @@ class MqttBroker implements HandlerDependencies {
   List<int>? _parsePacketLength(List<int> buffer) {
     if (buffer.isEmpty) return null;
 
-    int multiplier = 1;
-    int value = 0;
-    int bytesRead = 0;
+    var multiplier = 1;
+    var value = 0;
+    var pos = 1;
 
-    for (int i = 1; i < buffer.length && i <= 4; i++) {
-      bytesRead++;
-      final digit = buffer[i];
-      value += (digit & 127) * multiplier;
+    while (pos < buffer.length) {
+      value += (buffer[pos] & 127) * multiplier;
       multiplier *= 128;
 
-      if ((digit & 128) == 0) {
-        return [value + bytesRead + 1, bytesRead + 1];
+      if (multiplier > 128 * 128 * 128) {
+        return null; // Malformed length
+      }
+
+      if ((buffer[pos] & 128) == 0) {
+        break;
+      }
+
+      pos++;
+    }
+
+    final remainingLength = value;
+    final totalLength = pos + 1 + remainingLength;
+
+    if (totalLength > buffer.length) {
+      return null; // Not enough data yet
+    }
+
+    return [totalLength, remainingLength];
+  }
+
+  Future<void> _handleMqttPacket(Uint8List data, MqttConnection connection) async {
+    await _packetHandlerRegistry.handlePacket(data, connection);
+  }
+
+  Future<void> _disconnectClient(MqttConnection connection) async {
+    // Find client ID for this connection
+    String? clientId;
+    for (var entry in _stateManager.connections.entries) {
+      if (entry.value == connection) {
+        clientId = entry.key;
+        break;
       }
     }
-
-    return null;
-  }
-
-  Future<void> _handleMqttPacket(Uint8List data, MqttConnection client) async {
-    try {
-      await _packetHandlerRegistry.handlePacket(data, client);
-    } catch (e, stackTrace) {
-      developer.log('Error handling MQTT packet: $e');
-      developer.log('Stack trace: $stackTrace');
-      await client.disconnect();
+    
+    if (clientId != null) {
+      _stateManager.disconnectClient(clientId);
+    } else {
+      // If we can't find the client ID, just disconnect the connection
+      connection.disconnect();
     }
-  }
-
-
-  Future<void> disconnectClient(MqttConnection client) async {
-    final session = _clientSessions[client];
-    if (session != null) {
-      _clientSessions.remove(client);
-    }
-    client.disconnect();
+    return Future.value();
   }
 
   Future<void> stop() async {
+    if (!_isRunning) return;
+
     _isRunning = false;
+    _server?.close();
+    _secureServer?.close();
     _maintenanceTimer?.cancel();
 
-    // Close all client connections
-    for (final client in _clientSessions.keys.toList()) {
-      await disconnectClient(client);
-    }
-
-    // Save sessions
-    await _savePersistentSessions();
-
-    // Close servers
-    await _server?.close();
-    await _secureServer?.close();
-
-    _topicSubscriptions.clear();
-    _clientSessions.clear();
-    _retainedMessages.clear();
-    _clientConnectionCount.clear();
+    // Clean up all state
+    await _stateManager.dispose();
 
     _isRunning = false;
     developer.log('MQTT Broker stopped');
   }
 
-  bool get isRunning => _isRunning;
 }

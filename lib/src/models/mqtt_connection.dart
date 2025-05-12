@@ -3,14 +3,12 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:developer' as developer;
 
-import 'package:mqtt_server/src/mqtt_session.dart';
-
 class MqttConnection {
   final Socket _socket;
   bool isConnected = false;
-  MqttSession? session;
   StreamSubscription? _subscription;
-  
+  String? clientId;
+
   void Function(List<int>)? _onData;
   void Function()? _onDisconnect;
 
@@ -28,8 +26,6 @@ class MqttConnection {
   }
 
   void _handleData(List<int> data) {
-    if (!isConnected) return;
-
     try {
       // Instead of adding to controller, notify broker directly
       if (_onData != null) {
@@ -80,14 +76,9 @@ class MqttConnection {
   }
 
   Future<void> send(Uint8List data) async {
-    if (!isConnected) {
-      developer.log('Attempting to send data when not connected');
-      return;
-    }
-
     try {
       _socket.add(data);
-      // await _socket.flush(); // Ensure data is sent immediately
+      await _socket.flush(); // Ensure data is sent immediately
     } catch (e, stackTrace) {
       developer.log('Error sending data: $e');
       developer.log('Stack trace: $stackTrace');

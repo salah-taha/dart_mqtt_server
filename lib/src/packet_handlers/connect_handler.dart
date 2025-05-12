@@ -1,20 +1,22 @@
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
-import '../mqtt_connection.dart';
-import '../mqtt_broker.dart';
-import '../mqtt_session.dart';
-import 'packet_handler_base.dart';
+
+import 'package:mqtt_server/src/core/packet_handler_base.dart';
+import 'package:mqtt_server/src/models/mqtt_connection.dart';
+import 'package:mqtt_server/src/models/mqtt_session.dart';
+import 'package:mqtt_server/src/mqtt_broker.dart';
+
 
 class ConnectHandler extends PacketHandlerBase {
   ConnectHandler(super.deps);
 
   @override
-  Future<void> handle(Uint8List data, MqttConnection client, {int qos = 0, bool retain = false}) async {
+  Future<void> handle(Uint8List data, MqttConnection connection, {int qos = 0, bool retain = false}) async {
     try {
       // Validate minimum packet length
       if (data.length < 12) {
-        await _sendConnack(client, 0x01); // Unacceptable protocol version
+        await _sendConnack(connection, 0x01); // Unacceptable protocol version
         return;
       }
 
@@ -25,13 +27,13 @@ class ConnectHandler extends PacketHandlerBase {
       pos += 2;
 
       if (protocolLength != 4 || pos + protocolLength > data.length) {
-        await _sendConnack(client, 0x01);
+        await _sendConnack(connection, 0x01);
         return;
       }
 
       final protocolName = String.fromCharCodes(data.sublist(pos, pos + protocolLength));
       if (protocolName != 'MQTT') {
-        await _sendConnack(client, 0x01);
+        await _sendConnack(connection, 0x01);
         return;
       }
       pos += protocolLength;
@@ -39,7 +41,7 @@ class ConnectHandler extends PacketHandlerBase {
       // Validate protocol version (3.1.1 = 0x04)
       final protocolVersion = data[pos++];
       if (protocolVersion != 0x04) {
-        await _sendConnack(client, 0x01);
+        await _sendConnack(connection, 0x01);
         return;
       }
 
@@ -53,20 +55,20 @@ class ConnectHandler extends PacketHandlerBase {
 
       // Validate QoS level for will message
       if (willFlag && willQoS > 2) {
-        await _sendConnack(client, 0x01);
+        await _sendConnack(connection, 0x01);
         return;
       }
 
       // Read keep alive (in seconds)
       if (pos + 2 > data.length) {
-        await _sendConnack(client, 0x04);
+        await _sendConnack(connection, 0x04);
         return;
       }
       pos += 2; // Skip keep alive
 
       // Extract client ID
       if (pos + 2 > data.length) {
-        await _sendConnack(client, 0x04);
+        await _sendConnack(connection, 0x04);
         return;
       }
 
@@ -74,12 +76,12 @@ class ConnectHandler extends PacketHandlerBase {
       pos += 2;
 
       if (clientIdLength == 0 && !cleanSession) {
-        await _sendConnack(client, 0x02); // Identifier rejected
+        await _sendConnack(connection, 0x02); // Identifier rejected
         return;
       }
 
       if (pos + clientIdLength > data.length) {
-        await _sendConnack(client, 0x04);
+        await _sendConnack(connection, 0x04);
         return;
       }
 
@@ -90,10 +92,10 @@ class ConnectHandler extends PacketHandlerBase {
       // Handle authentication
       String? username;
       String? password;
-      if (deps is MqttBroker && !(deps as MqttBroker).config.allowAnonymous) {
+      if (!MqttBroker.config.allowAnonymous) {
         if (usernameFlag) {
           if (pos + 2 > data.length) {
-            await _sendConnack(client, 0x04);
+            await _sendConnack(connection, 0x04);
             return;
           }
 
@@ -101,7 +103,7 @@ class ConnectHandler extends PacketHandlerBase {
           pos += 2;
 
           if (pos + usernameLength > data.length) {
-            await _sendConnack(client, 0x04);
+            await _sendConnack(connection, 0x04);
             return;
           }
 
@@ -111,7 +113,7 @@ class ConnectHandler extends PacketHandlerBase {
 
         if (passwordFlag) {
           if (pos + 2 > data.length) {
-            await _sendConnack(client, 0x04);
+            await _sendConnack(connection, 0x04);
             return;
           }
 
@@ -119,7 +121,7 @@ class ConnectHandler extends PacketHandlerBase {
           pos += 2;
 
           if (pos + passwordLength > data.length) {
-            await _sendConnack(client, 0x04);
+            await _sendConnack(connection, 0x04);
             return;
           }
 
@@ -128,41 +130,44 @@ class ConnectHandler extends PacketHandlerBase {
         }
 
         if (!_authenticate(username, password)) {
-          await _sendConnack(client, 0x05); // Not authorized
+          await _sendConnack(connection, 0x05); // Not authorized
           return;
         }
       }
 
-      // Create session
+      // Create session and associate with connection
       final session = MqttSession(clientId, cleanSession);
-      if (deps is MqttBroker) {
-        (deps as MqttBroker).clientSessions[client] = session;
-      }
+      deps.addSession(clientId, session);
+      connection.clientId = clientId;
 
       // Send CONNACK
-      await _sendConnack(client, 0x00);
+      await _sendConnack(connection, 0x00);
 
-      client.isConnected = true;
+      connection.isConnected = true;
+
+      deps.clientConnections[clientId] = connection;
+      
+      // Process any stored messages for this client
+      deps.processQueuedMessages(clientId);
     } catch (e) {
-      await _sendConnack(client, 0x04);
+      await _sendConnack(connection, 0x04);
     }
   }
 
-  Future<void> _sendConnack(MqttConnection client, int returnCode) async {
+  Future<void> _sendConnack(MqttConnection connection, int returnCode) async {
     final connack = Uint8List.fromList([0x20, 0x02, 0x00, returnCode]);
-    await client.send(connack);
+    await connection.send(connack);
   }
 
   bool _authenticate(String? username, String? password) {
-    // TODO: Implement authentication
-    if (deps is! MqttBroker) return true; // No auth for non-broker deps
-    final broker = deps as MqttBroker;
-    if (broker.config.allowAnonymous) return true;
+    if (MqttBroker.config.allowAnonymous) return true;
     if (username == null || password == null) return false;
-    final credentials = broker.credentials;
+    
+    final credentials = deps.getCredentials();
     if (!credentials.containsKey(username)) return false;
+    
     final storedCredentials = credentials[username]!;
-    return storedCredentials.hashedPassword == password; // In real impl, use proper hashing
+    return storedCredentials.password == password; 
   }
 
   String _generateClientId() {
