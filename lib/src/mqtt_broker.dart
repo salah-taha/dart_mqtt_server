@@ -37,10 +37,23 @@ class MqttBroker implements HandlerDependencies {
   Map<String, Set<String>> get topicSubscriptions => _stateManager.topicSubscriptions;
 
   @override
+  Map<String, Map<String, int>> get clientSubscriptions => _stateManager.clientSubscriptions;
+
+  @override
+  void subscribe(String clientId, String topic, int qos) {
+    _stateManager.subscribe(clientId, topic, qos);
+  }
+
+  @override
+  void unsubscribe(String clientId, String topic) {
+    _stateManager.unsubscribe(clientId, topic);
+  }
+
+  @override
   Map<String, Map<int, MqttMessage>> get inFlightMessages => _stateManager.inFlightMessages;
 
   @override
-  Map<String, MqttConnection> get clientConnections => _stateManager.connections;
+  Map<String, MqttConnection> get clientConnections => _stateManager.clientConnections;
 
   @override
   MqttSession? getSession(String? clientId) {
@@ -232,17 +245,8 @@ class MqttBroker implements HandlerDependencies {
   }
 
   Future<void> _disconnectClient(MqttConnection connection) async {
-    // Find client ID for this connection
-    String? clientId;
-    for (var entry in _stateManager.connections.entries) {
-      if (entry.value == connection) {
-        clientId = entry.key;
-        break;
-      }
-    }
-    
-    if (clientId != null) {
-      _stateManager.disconnectClient(clientId);
+    if (connection.clientId != null) {
+      _stateManager.disconnectClient(connection.clientId!);
     } else {
       // If we can't find the client ID, just disconnect the connection
       connection.disconnect();

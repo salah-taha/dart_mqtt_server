@@ -1,7 +1,7 @@
-import '../models/mqtt_session.dart';
-import '../models/mqtt_message.dart';
-import '../models/mqtt_connection.dart';
-import '../models/mqtt_credentials.dart';
+import 'package:mqtt_server/src/models/mqtt_session.dart';
+import 'package:mqtt_server/src/models/mqtt_message.dart';
+import 'package:mqtt_server/src/models/mqtt_connection.dart';
+import 'package:mqtt_server/src/models/mqtt_credentials.dart';
 
 /// Interface for providing dependencies to packet handlers
 abstract class HandlerDependencies {
@@ -13,6 +13,15 @@ abstract class HandlerDependencies {
 
   /// Get topic subscriptions
   Map<String, Set<String>> get topicSubscriptions;
+
+  /// Get client subscriptions
+  Map<String, Map<String, int>> get clientSubscriptions;
+
+  /// Subscribe a client to a topic with specified QoS
+  void subscribe(String clientId, String topic, int qos);
+
+  /// Unsubscribe a client from a topic
+  void unsubscribe(String clientId, String topic);
   
   /// Get in-flight messages
   Map<String, Map<int, MqttMessage>> get inFlightMessages;

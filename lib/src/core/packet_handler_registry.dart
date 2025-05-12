@@ -1,7 +1,7 @@
 import 'dart:typed_data';
-import 'package:mqtt_server/src/models/mqtt_connection.dart';
 import 'package:mqtt_server/src/mqtt_broker.dart';
-import 'packet_handler_base.dart';
+import 'package:mqtt_server/src/models/mqtt_connection.dart';
+import 'package:mqtt_server/src/core/packet_handler_base.dart';
 import 'package:mqtt_server/src/packet_handlers/connect_handler.dart';
 import 'package:mqtt_server/src/packet_handlers/disconnect_handler.dart';
 import 'package:mqtt_server/src/packet_handlers/pingreq_handler.dart';

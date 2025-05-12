@@ -89,4 +89,8 @@ class MqttConnection {
   Future<void> disconnect() async {
     _cleanupConnection();
   }
+
+  Future<void> close() async {
+    await disconnect();
+  }
 }
