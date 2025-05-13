@@ -79,7 +79,7 @@ class MqttConnection {
     try {
       if (!isConnected) return;
       _socket.add(data);
-      await _socket.flush(); // Ensure data is sent immediately
+      // await _socket.flush(); // Ensure data is sent immediately
     } catch (e, stackTrace) {
       developer.log('Error sending data: $e');
       developer.log('Stack trace: $stackTrace');

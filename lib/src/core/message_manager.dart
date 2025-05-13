@@ -60,26 +60,35 @@ class MessageManager {
     try {
       var offset = 2;
 
+      // Extract topic length and topic
       final topicLength = ((data[offset] << 8) | data[offset + 1]);
       offset += 2;
-
       final topic = utf8.decode(data.sublist(offset, offset + topicLength), allowMalformed: false);
       offset += topicLength;
 
+      // Extract message ID if QoS > 0 (check QoS from the first byte)
+      int messageId = 0;
+      bool isDuplicate = false;
+      final headerByte = data[0];
+      final qos = (headerByte >> 1) & 0x03; // Extract QoS from bits 2-1
+      isDuplicate = (headerByte & 0x08) != 0; // Extract DUP flag from bit 3
+      
+      if (qos > 0) {
+        messageId = ((data[offset] << 8) | data[offset + 1]);
+        offset += 2; // Move past the message ID
+      }
+
+      // Now extract the payload (everything after the message ID if present)
       final payload = data.sublist(offset);
-
-      final messageId = ((data[offset] << 8) | data[offset + 1]);
-      offset += 2;
-
-      final isDuplicate = (data[offset] & 0x08) != 0;
 
       return {
         'topic': topic,
-        'payload': Uint8List.fromList(payload),
+        'payload': payload, // Use the payload after the message ID
         'messageId': messageId,
         'isDuplicate': isDuplicate,
       };
     } catch (e) {
+      developer.log('Error extracting publish data: $e');
       return null;
     }
   }
