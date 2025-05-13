@@ -14,13 +14,13 @@ class PubcompHandler extends PacketHandlerBase {
     if (data.length < 4) return;
     if (connection.clientId == null) return;
 
-    final session = _broker.stateManager.getSession(connection.clientId);
+    final session = _broker.connectionsManager.getSession(connection.clientId);
     if (session == null) return;
 
     final messageId = ((data[2] << 8) | data[3]);
 
     // Remove message from in-flight messages
-    _broker.stateManager.inFlightMessages[session.clientId]?.remove(messageId);
+    _broker.messageManager.incomingPubAck(messageId, connection.clientId!);
 
     session.lastActivity = DateTime.now();
   }

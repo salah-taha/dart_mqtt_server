@@ -13,27 +13,14 @@ class ConnectionsManager {
   final Map<String, Set<String>> _topicSubscriptions = {}; // topic -> Set<clientId>
   final Map<String, Map<String, int>> _clientSubscriptions = {}; // clientId -> Map<topic, qos>
 
-  final StreamController<ConnectionEvent> _connectionEventController = StreamController.broadcast();
-
-  /// Stream of connection events
-  Stream<ConnectionEvent> get connectionEvents => _connectionEventController.stream;
-
-  /// Get all active connections
-  Map<String, MqttConnection> get connections => _connections;
-
-  /// Get all active sessions
-  Map<String, MqttSession> get sessions => _sessions;
-
-  /// Get topic subscriptions
-  Map<String, Set<String>> get topicSubscriptions => _topicSubscriptions;
-
-  /// Get client subscriptions
-  Map<String, Map<String, int>> get clientSubscriptions => _clientSubscriptions;
+  MqttConnection? getConnection(String? clientId) {
+    if (clientId == null) return null;
+    return _connections[clientId];
+  }
 
   /// Register a new connection
   void registerConnection(MqttConnection connection, String clientId) {
     _connections[clientId] = connection;
-    _notifyConnectionEvent(clientId, ConnectionEventType.connected);
     developer.log('Client $clientId connected');
   }
 
@@ -65,14 +52,16 @@ class ConnectionsManager {
   }
 
   /// Disconnect a client
-  Future<void> disconnectClient(String clientId) async {
+  Future<void> disconnectClient(String clientId, {bool clearSession = true}) async {
     final connection = _connections[clientId];
     if (connection != null) {
       await connection.close();
       _connections.remove(clientId);
-      _notifyConnectionEvent(clientId, ConnectionEventType.disconnected);
-      developer.log('Client $clientId disconnected');
     }
+    if (clearSession) {
+      removeSession(clientId);
+    }
+    developer.log('Client $clientId disconnected');
   }
 
   /// Check if a client is connected
@@ -178,37 +167,7 @@ class ConnectionsManager {
     for (var clientId in _connections.keys.toList()) {
       await disconnectClient(clientId);
     }
-    await _connectionEventController.close();
   }
 
-  void _notifyConnectionEvent(String clientId, ConnectionEventType type) {
-    _connectionEventController.add(
-      ConnectionEvent(
-        clientId: clientId,
-        type: type,
-        timestamp: DateTime.now(),
-      ),
-    );
-  }
-}
-
-/// Represents a connection event type
-enum ConnectionEventType {
-  connected,
-  disconnected,
-  authenticated,
-  authenticationFailed,
-}
-
-/// Represents a connection event
-class ConnectionEvent {
-  final String clientId;
-  final ConnectionEventType type;
-  final DateTime timestamp;
-
-  ConnectionEvent({
-    required this.clientId,
-    required this.type,
-    required this.timestamp,
-  });
+ 
 }

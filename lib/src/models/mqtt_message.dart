@@ -1,12 +1,18 @@
 import 'dart:typed_data';
 
+import 'package:mqtt_server/src/enums/qos_message_state.dart';
+
 class MqttMessage {
   final Uint8List payload;
   final int qos;
   final bool retain;
   final DateTime timestamp;
+  final String? topic; // Topic this message belongs to
+  final QosMessageState? state;
+  int? messageId;
 
-  MqttMessage(this.payload, this.qos, this.retain, DateTime? time) : timestamp = time ?? DateTime.now();
+  MqttMessage(this.payload, this.qos, this.retain, DateTime? time, {this.topic, this.state, this.messageId})
+      : timestamp = time ?? DateTime.now();
 
   Map<String, dynamic> toPersistentData() {
     return {
@@ -14,6 +20,7 @@ class MqttMessage {
       'qos': qos,
       'retain': retain,
       'timestamp': timestamp.toIso8601String(),
+      'topic': topic,
     };
   }
 
@@ -23,6 +30,7 @@ class MqttMessage {
       data['qos'] as int,
       data['retain'] as bool,
       DateTime.parse(data['timestamp'] as String),
+      topic: data['topic'] as String?,
     );
   }
 }

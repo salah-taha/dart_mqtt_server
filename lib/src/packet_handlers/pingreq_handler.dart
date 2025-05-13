@@ -11,7 +11,7 @@ class PingreqHandler extends PacketHandlerBase {
   Future<void> handle(Uint8List data, MqttConnection connection, {int qos = 0, bool retain = false}) async {
     if (connection.clientId == null) return;
     
-    final session = _broker.stateManager.getSession(connection.clientId);
+    final session = _broker.connectionsManager.getSession(connection.clientId);
     if (session == null) return;
 
     // Send PINGRESP

@@ -138,7 +138,7 @@ class ConnectHandler extends PacketHandlerBase {
 
       // Create session and associate with connection
       final session = MqttSession(clientId, cleanSession);
-      _broker.stateManager.addSession(clientId, session);
+      _broker.connectionsManager.addSession(clientId, session);
       connection.clientId = clientId;
 
       // Send CONNACK
@@ -146,10 +146,10 @@ class ConnectHandler extends PacketHandlerBase {
 
       connection.isConnected = true;
 
-      _broker.stateManager.clientConnections[clientId] = connection;
+      _broker.connectionsManager.registerConnection(connection, clientId);
       
       // Process any stored messages for this client
-      _broker.stateManager.processQueuedMessages(clientId);
+      _broker.messageManager.processQueuedMessages(clientId);
     } catch (e) {
       await _sendConnack(connection, 0x04);
     }

@@ -12,8 +12,8 @@ class UnsubscribeHandler extends PacketHandlerBase {
   @override
   Future<void> handle(Uint8List data, MqttConnection connection, {int qos = 0, bool retain = false}) async {
     if (connection.clientId == null) return;
-    
-    final session = _broker.stateManager.getSession(connection.clientId)!;
+
+    final session = _broker.connectionsManager.getSession(connection.clientId!);
     final messageId = ((data[2] << 8) | data[3]);
     var pos = 4;
 
@@ -29,21 +29,18 @@ class UnsubscribeHandler extends PacketHandlerBase {
       pos += topicLength;
 
       // Remove QoS level for this topic
-      session.qosLevels.remove(topic);
+      session?.qosLevels.remove(topic);
 
       // Remove client from topic subscribers
-      _broker.stateManager.topicSubscriptions[topic]?.remove(connection.clientId);
+      _broker.connectionsManager.unsubscribe(connection.clientId!, topic);
 
-      // Clean up empty topic subscriptions
-      if (_broker.stateManager.topicSubscriptions[topic]?.isEmpty ?? false) {
-        _broker.stateManager.topicSubscriptions.remove(topic);
-      }
+      //TODO: remove topic messages in queue
     }
 
     // Send UNSUBACK
     final unsuback = Uint8List.fromList([0xB0, 0x02, (messageId >> 8) & 0xFF, messageId & 0xFF]);
     await connection.send(unsuback);
 
-    session.lastActivity = DateTime.now();
+    session?.lastActivity = DateTime.now();
   }
 }

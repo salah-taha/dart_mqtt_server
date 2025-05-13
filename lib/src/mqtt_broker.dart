@@ -3,9 +3,10 @@ import 'dart:developer' as developer;
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:mqtt_server/mqtt_server.dart';
 import 'package:mqtt_server/src/core/broker_state_manager.dart';
+import 'package:mqtt_server/src/core/connections_manager.dart';
 import 'package:mqtt_server/src/core/packet_handler_registry.dart';
-import 'package:mqtt_server/src/models/mqtt_broker_config.dart';
 import 'package:mqtt_server/src/models/mqtt_connection.dart';
 
 class MqttBroker {
@@ -14,6 +15,12 @@ class MqttBroker {
 
   // State manager
   late BrokerStateManager stateManager;
+
+  // Message manager
+  late MessageManager messageManager;
+
+  // Connections manager
+  late ConnectionsManager connectionsManager;
 
   // Handler registry
   late PacketHandlerRegistry _packetHandlerRegistry;
@@ -27,6 +34,8 @@ class MqttBroker {
   MqttBroker([MqttBrokerConfig? brokerConfig]) {
     config = brokerConfig ?? MqttBrokerConfig();
     stateManager = BrokerStateManager(this);
+    messageManager = MessageManager(this);
+    connectionsManager = ConnectionsManager();
     _packetHandlerRegistry = PacketHandlerRegistry(this);
   }
 
@@ -163,7 +172,7 @@ class MqttBroker {
 
   Future<void> _disconnectClient(MqttConnection connection) async {
     if (connection.clientId != null) {
-      stateManager.disconnectClient(connection.clientId!);
+      connectionsManager.disconnectClient(connection.clientId!, clearSession: false);
     } else {
       // If we can't find the client ID, just disconnect the connection
       connection.disconnect();

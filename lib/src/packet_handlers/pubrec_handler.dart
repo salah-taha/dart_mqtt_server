@@ -14,17 +14,22 @@ class PubrecHandler extends PacketHandlerBase {
     if (data.length < 4) return;
     if (connection.clientId == null) return;
 
-    final session = _broker.stateManager.getSession(connection.clientId);
+    final session = _broker.connectionsManager.getSession(connection.clientId);
     if (session == null) return;
 
-    // Send PUBREL
-    final pubrelPacket = Uint8List(4);
-    pubrelPacket[0] = 0x62; // PUBREL with QoS 1
-    pubrelPacket[1] = 0x02; // Remaining length
-    pubrelPacket[2] = data[2]; // Message ID MSB
-    pubrelPacket[3] = data[3]; // Message ID LSB
+    var messageId = (data[2] << 8) | data[3];
+    var messageExisting = _broker.messageManager.incomingPubRec(messageId, connection.clientId!);
 
-    await connection.send(pubrelPacket);
+    if (messageExisting) {
+      // Send PUBREL
+      final pubrelPacket = Uint8List(4);
+      pubrelPacket[0] = 0x62; // PUBREL with QoS 1
+      pubrelPacket[1] = 0x02; // Remaining length
+      pubrelPacket[2] = data[2]; // Message ID MSB
+      pubrelPacket[3] = data[3]; // Message ID LSB
+
+      await connection.send(pubrelPacket);
+    }
     session.lastActivity = DateTime.now();
   }
 }
