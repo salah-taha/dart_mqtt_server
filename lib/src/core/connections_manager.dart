@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:developer' as developer;
 import 'package:mqtt_server/src/models/mqtt_connection.dart';
 import 'package:mqtt_server/src/models/mqtt_session.dart';
 
@@ -21,7 +20,6 @@ class ConnectionsManager {
   /// Register a new connection
   void registerConnection(MqttConnection connection, String clientId) {
     _connections[clientId] = connection;
-    developer.log('Client $clientId connected');
   }
 
   /// Get or create a session for a client
@@ -61,7 +59,6 @@ class ConnectionsManager {
     if (clearSession) {
       removeSession(clientId);
     }
-    developer.log('Client $clientId disconnected');
   }
 
   /// Check if a client is connected
@@ -85,7 +82,6 @@ class ConnectionsManager {
     // Add to client subscriptions
     _clientSubscriptions.putIfAbsent(clientId, () => {}).putIfAbsent(topic, () => qos);
 
-    developer.log('Client $clientId subscribed to $topic with QoS $qos');
   }
 
   /// Unsubscribe a client from a topic
@@ -102,7 +98,6 @@ class ConnectionsManager {
       _clientSubscriptions.remove(clientId);
     }
 
-    developer.log('Client $clientId unsubscribed from $topic');
   }
 
   /// Get subscribers for a topic

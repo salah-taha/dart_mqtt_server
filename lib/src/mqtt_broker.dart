@@ -124,8 +124,6 @@ class MqttBroker {
   }
 
   void _handleConnection(Socket socket) {
-    developer.log('New client connected: ${socket.remoteAddress.address}:${socket.remotePort}');
-
     final connection = MqttConnection(socket);
     _setupClientHandlers(connection);
   }
@@ -213,8 +211,7 @@ class MqttBroker {
     try {
       if (!config.enablePersistence) return;
       //TODO: Save persistent sessions to disk
-    } catch (e) {
-      developer.log('Error saving persistent sessions: $e');
+    } catch (_) {
     }
   }
 

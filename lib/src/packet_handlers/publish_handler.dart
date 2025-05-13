@@ -4,10 +4,9 @@ import 'package:mqtt_server/mqtt_server.dart';
 import 'package:mqtt_server/src/core/packet_handler_base.dart';
 import 'package:mqtt_server/src/models/mqtt_connection.dart';
 
-
 class PublishHandler extends PacketHandlerBase {
   final MqttBroker _broker;
-  
+
   PublishHandler(this._broker);
 
   @override
@@ -29,7 +28,6 @@ class PublishHandler extends PacketHandlerBase {
     final messageId = extractResult['messageId'] as int;
     final isDuplicate = extractResult['isDuplicate'] as bool;
 
-
     // Get active subscribers for this topic
     await _broker.messageManager.sendMessage(
       topic: topic,
@@ -38,7 +36,8 @@ class PublishHandler extends PacketHandlerBase {
       retain: retain,
       messageId: messageId,
       isDuplicate: isDuplicate,
-        );
+      senderId: connection.clientId!,
+    );
 
     session.lastActivity = DateTime.now();
 
@@ -46,7 +45,7 @@ class PublishHandler extends PacketHandlerBase {
     if (qos == 1) {
       var packet = _broker.messageManager.createPubackPacket(messageId);
       connection.send(packet);
-    } 
+    }
 
     // send pubrec if QoS 2
     else if (qos == 2) {

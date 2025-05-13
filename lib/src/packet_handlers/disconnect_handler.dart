@@ -11,7 +11,6 @@ class DisconnectHandler extends PacketHandlerBase {
   Future<void> handle(Uint8List data, MqttConnection connection, {int qos = 0, bool retain = false}) async {
     if (connection.clientId == null) return;
 
-    _broker.connectionsManager.disconnectClient(connection.clientId!);
-    _broker.messageManager.removeClientMessages(connection.clientId!);
+    _broker.connectionsManager.disconnectClient(connection.clientId!, clearSession: false);
   }
 }

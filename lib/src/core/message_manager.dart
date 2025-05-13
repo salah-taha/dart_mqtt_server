@@ -1,6 +1,5 @@
 import 'dart:collection';
 import 'dart:convert';
-import 'dart:developer' as developer;
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -24,10 +23,7 @@ class MessageManager {
   Map<String, MqttMessage> get retainedMessages => _retainedMessages;
 
   void incomingPubAck(int messageId, String clientId) {
-    var messages = _messageStore[clientId];
-    if (messages == null || messages.isEmpty) return;
-
-    messages.removeWhere((message) => message.messageId == messageId);
+    _messageStore[clientId]?.removeWhere((message) => message.messageId == messageId);
 
     processQueuedMessages(clientId);
   }
@@ -36,7 +32,9 @@ class MessageManager {
     var messages = _messageStore[clientId];
     if (messages == null || messages.isEmpty) return false;
 
-    if (messages.any((message) => message.messageId == messageId)) {
+    if (messages.any((message) => message.messageId == messageId && message.state == QosMessageState.pubRecPending)) {
+      var message = messages.firstWhere((message) => message.messageId == messageId);
+      message.state = QosMessageState.pubCompPending;
       return true;
     }
     return false;
@@ -46,7 +44,7 @@ class MessageManager {
     var messages = _qos2Store[clientId];
     if (messages == null || messages.isEmpty) return false;
 
-    if (!messages.any((message) => message.messageId == messageId)) {
+    if (!messages.any((message) => message.messageId == messageId && message.state == QosMessageState.pubRelPending)) {
       return false;
     }
 
@@ -72,7 +70,7 @@ class MessageManager {
       final headerByte = data[0];
       final qos = (headerByte >> 1) & 0x03; // Extract QoS from bits 2-1
       isDuplicate = (headerByte & 0x08) != 0; // Extract DUP flag from bit 3
-      
+
       if (qos > 0) {
         messageId = ((data[offset] << 8) | data[offset + 1]);
         offset += 2; // Move past the message ID
@@ -88,51 +86,12 @@ class MessageManager {
         'isDuplicate': isDuplicate,
       };
     } catch (e) {
-      developer.log('Error extracting publish data: $e');
       return null;
     }
   }
 
-  /// Creates a PUBLISH packet
-  Uint8List createPublishPacket({
-    required String topic,
-    required MqttMessage message,
-    int? messageId,
-    required String clientId,
-    bool isDuplicate = false,
-  }) {
-    final remainingLength = 2 + utf8.encode(topic).length + message.payload.length + (message.qos > 0 ? 2 : 0);
-
-    // PUBLISH packet fixed header
-    // Bit 7-4: Message type (3 for PUBLISH)
-    // Bit 3: DUP flag
-    // Bit 2-1: QoS level
-    // Bit 0: RETAIN flag
-    final headerByte = 0x30 | (isDuplicate ? 0x08 : 0x00) | (message.qos << 1) | (message.retain ? 0x01 : 0x00);
-
-    final publishPacket = BytesBuilder();
-    publishPacket.addByte(headerByte);
-
-    addRemainingLength(publishPacket, remainingLength);
-
-    // Add topic
-    publishPacket.addByte((utf8.encode(topic).length >> 8) & 0xFF);
-    publishPacket.addByte(utf8.encode(topic).length & 0xFF);
-    publishPacket.add(utf8.encode(topic));
-
-    // Add message ID for QoS > 0
-    if (message.qos > 0) {
-      publishPacket.addByte((messageId ?? 0 >> 8) & 0xFF);
-      publishPacket.addByte((messageId ?? 0) & 0xFF);
-    }
-
-    // Add payload
-    publishPacket.add(message.payload);
-    return publishPacket.toBytes();
-  }
-
   /// Creates a PUBLISH packet from direct parameters
-  Uint8List createPublishPacketDirect({
+  Uint8List createPublishPacket({
     required String topic,
     required Uint8List payload,
     required int qos,
@@ -172,20 +131,6 @@ class MessageManager {
     return publishPacket.toBytes();
   }
 
-  /// Creates a PUBLISH packet from a message object
-  /// This is used internally for compatibility with existing code
-  Uint8List createPublishPacketFromMessage({
-    required MqttMessage message,
-    required String clientId,
-    int? messageId,
-  }) {
-    final topic = message.topic ?? 'unknown';
-
-    return createPublishPacketDirect(
-        topic: topic, payload: message.payload, qos: message.qos, messageId: messageId ?? 0, retain: message.retain, isDuplicate: false);
-  }
-
-  /// Creates a SUBACK packet
   Uint8List createSubackPacket(int messageId, List<int> grantedQos) {
     final suback = Uint8List(4 + grantedQos.length);
     suback[0] = 0x90; // SUBACK packet type
@@ -272,35 +217,21 @@ class MessageManager {
     }
   }
 
-  /// Process queued messages for a client, one at a time with proper QoS handling
-  /// This method processes only one message and waits for acknowledgment before processing the next
   void processQueuedMessages(String clientId) async {
     if (!_messageStore.containsKey(clientId)) return;
 
-    final session = _broker.connectionsManager.getSession(clientId);
-    if (session == null) return;
-
-    final connection = _broker.connectionsManager.getConnection(clientId);
-    if (connection == null || !connection.isConnected) return;
-
-    // Get all queued messages (with negative IDs)
     final queuedEntries = _messageStore[clientId];
     if (queuedEntries == null || queuedEntries.isEmpty) return;
 
-    // Process only the first message in the queue
     final message = queuedEntries.first;
 
     try {
-      // For clean session, process all messages
-      // For non-clean session, only process QoS 1 and 2 messages
-
       final topic = message.topic ?? 'unknown';
 
-      // Handle based on QoS level
       switch (message.qos) {
         case 0: // QoS 0: At most once delivery
 
-          final publishPacket = createPublishPacketDirect(
+          final publishPacket = createPublishPacket(
             topic: topic,
             payload: message.payload,
             qos: 0,
@@ -309,9 +240,12 @@ class MessageManager {
             isDuplicate: false,
           );
 
-          connection.send(publishPacket);
           queuedEntries.removeFirst();
 
+          final connection = _broker.connectionsManager.getConnection(clientId);
+          if (connection == null) return;
+
+          connection.send(publishPacket);
           await Future.delayed(Duration(milliseconds: 50));
 
           processQueuedMessages(clientId);
@@ -319,7 +253,7 @@ class MessageManager {
 
         case 1: // QoS 1: At least once delivery
 
-          final publishPacket = createPublishPacketDirect(
+          final publishPacket = createPublishPacket(
             topic: topic,
             payload: message.payload,
             qos: 1,
@@ -328,13 +262,17 @@ class MessageManager {
             isDuplicate: message.state != QosMessageState.pending,
           );
 
+          final connection = _broker.connectionsManager.getConnection(clientId);
+          if (connection == null) return;
+
           connection.send(publishPacket);
-          developer.log('Sent queued QoS 1 message to $clientId with ID ${message.messageId}');
+          message.state = QosMessageState.pubAckPending;
+
           break;
 
         case 2: // QoS 2: Exactly once delivery
 
-          final publishPacket = createPublishPacketDirect(
+          final publishPacket = createPublishPacket(
             topic: topic,
             payload: message.payload,
             qos: 2,
@@ -342,12 +280,16 @@ class MessageManager {
             retain: message.retain,
             isDuplicate: message.state != QosMessageState.pending,
           );
+
+          final connection = _broker.connectionsManager.getConnection(clientId);
+          if (connection == null) return;
+
           connection.send(publishPacket);
-          developer.log('Sent queued QoS 2 message to $clientId with ID ${message.messageId}');
+          message.state = QosMessageState.pubRecPending;
+
           break;
       }
     } catch (e) {
-      developer.log('Error sending queued message to client $clientId: $e');
       // If there's an error, stop processing but keep all messages in queue
     }
   }
@@ -379,6 +321,7 @@ class MessageManager {
   Future<void> sendMessage({
     required String topic,
     required Uint8List payload,
+    required String senderId,
     int messageQos = 0,
     bool retain = false,
     bool isDuplicate = false,
@@ -414,9 +357,16 @@ class MessageManager {
         _messageStore[clientId] ??= ListQueue<MqttMessage>();
         _messageStore[clientId]!.add(message);
 
+        if (effectiveQos == 2) {
+          var qos2Message = message.copyWith(
+            state: QosMessageState.pubRelPending,
+          );
+          _qos2Store[senderId] ??= ListQueue<MqttMessage>();
+          _qos2Store[senderId]!.add(qos2Message);
+        }
+
         processQueuedMessages(clientId);
-      } catch (e) {
-        developer.log('Error sending message to $clientId: $e');
+      } catch (_) {
       }
     }
   }

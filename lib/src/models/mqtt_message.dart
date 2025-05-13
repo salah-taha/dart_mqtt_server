@@ -8,11 +8,31 @@ class MqttMessage {
   final bool retain;
   final DateTime timestamp;
   final String? topic; // Topic this message belongs to
-  final QosMessageState? state;
+  QosMessageState? state;
   int? messageId;
 
   MqttMessage(this.payload, this.qos, this.retain, DateTime? time, {this.topic, this.state, this.messageId})
       : timestamp = time ?? DateTime.now();
+
+  MqttMessage copyWith({
+    Uint8List? payload,
+    int? qos,
+    bool? retain,
+    DateTime? timestamp,
+    String? topic,
+    QosMessageState? state,
+    int? messageId,
+  }) {
+    return MqttMessage(
+      payload ?? this.payload,
+      qos ?? this.qos,
+      retain ?? this.retain,
+      timestamp ?? this.timestamp,
+      topic: topic ?? this.topic,
+      state: state ?? this.state,
+      messageId: messageId ?? this.messageId,
+    );
+  }
 
   Map<String, dynamic> toPersistentData() {
     return {

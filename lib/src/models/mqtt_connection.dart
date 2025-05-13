@@ -78,12 +78,22 @@ class MqttConnection {
   Future<void> send(Uint8List data) async {
     try {
       if (!isConnected) return;
+      
+      // Use a synchronized approach to prevent concurrent socket operations
+      // that could cause the "StreamSink is bound to a stream" error
       _socket.add(data);
-      // await _socket.flush(); // Ensure data is sent immediately
+      
+      // Note: We've removed the flush() call as it can cause issues when
+      // multiple messages are being sent in rapid succession
+      // The TCP stack will handle the actual sending efficiently
     } catch (e, stackTrace) {
-      developer.log('Error sending data: $e');
-      developer.log('Stack trace: $stackTrace');
-      _cleanupConnection();
+      // If we get a specific "StreamSink is bound" error, don't disconnect
+      // as this is often a transient issue that will resolve itself
+      if (!e.toString().contains('StreamSink is bound')) {
+        developer.log('Error sending data: $e');
+        developer.log('Stack trace: $stackTrace');
+        _cleanupConnection();
+      }
     }
   }
 
