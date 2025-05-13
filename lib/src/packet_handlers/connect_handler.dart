@@ -130,7 +130,7 @@ class ConnectHandler extends PacketHandlerBase {
           pos += passwordLength;
         }
 
-        if (!_authenticate(username, password)) {
+        if (!_broker.authenticate(username, password)) {
           await _sendConnack(connection, 0x05); // Not authorized
           return;
         }
@@ -142,9 +142,9 @@ class ConnectHandler extends PacketHandlerBase {
       connection.clientId = clientId;
 
       // Send CONNACK
+      connection.isConnected = true;
       await _sendConnack(connection, 0x00);
 
-      connection.isConnected = true;
 
       _broker.connectionsManager.registerConnection(connection, clientId);
       
@@ -160,16 +160,6 @@ class ConnectHandler extends PacketHandlerBase {
     await connection.send(connack);
   }
 
-  bool _authenticate(String? username, String? password) {
-    if (_broker.config.allowAnonymous) return true;
-    if (username == null || password == null) return false;
-    
-    final credentials = _broker.stateManager.getCredentials();
-    if (!credentials.containsKey(username)) return false;
-    
-    final storedCredentials = credentials[username]!;
-    return storedCredentials.password == password; 
-  }
 
   String _generateClientId() {
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';

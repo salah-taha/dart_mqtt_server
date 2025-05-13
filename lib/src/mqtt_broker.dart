@@ -4,17 +4,14 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:mqtt_server/mqtt_server.dart';
-import 'package:mqtt_server/src/core/broker_state_manager.dart';
 import 'package:mqtt_server/src/core/connections_manager.dart';
 import 'package:mqtt_server/src/core/packet_handler_registry.dart';
 import 'package:mqtt_server/src/models/mqtt_connection.dart';
+import 'package:mqtt_server/src/models/mqtt_credentials.dart';
 
 class MqttBroker {
   // Configuration
   late MqttBrokerConfig config;
-
-  // State manager
-  late BrokerStateManager stateManager;
 
   // Message manager
   late MessageManager messageManager;
@@ -25,6 +22,9 @@ class MqttBroker {
   // Handler registry
   late PacketHandlerRegistry _packetHandlerRegistry;
 
+  // User credentials
+  final Map<String, MqttCredentials> _credentials = {};
+
   // Server infrastructure
   ServerSocket? _server;
   SecureServerSocket? _secureServer;
@@ -33,10 +33,35 @@ class MqttBroker {
 
   MqttBroker([MqttBrokerConfig? brokerConfig]) {
     config = brokerConfig ?? MqttBrokerConfig();
-    stateManager = BrokerStateManager(this);
     messageManager = MessageManager(this);
     connectionsManager = ConnectionsManager();
     _packetHandlerRegistry = PacketHandlerRegistry(this);
+  }
+  
+  /// Adds a user credential to the broker
+  void addUser(String username, String password) {
+    _credentials[username] = MqttCredentials(username, password);
+  }
+
+  /// Removes a user from the broker
+  void removeUser(String username) {
+    _credentials.remove(username);
+  }
+
+  /// Gets all credentials
+  Map<String, MqttCredentials> getCredentials() {
+    return _credentials;
+  }
+
+  /// Authenticates a user
+  bool authenticate(String? username, String? password) {
+    if (config.allowAnonymous) return true;
+    if (username == null || password == null) return false;
+
+    final credential = _credentials[username];
+    if (credential == null) return false;
+
+    return credential.password == password;
   }
 
   void _startMaintenanceTimer() {
@@ -47,10 +72,10 @@ class MqttBroker {
 
   void _performMaintenance() {
     // Delegate maintenance to state manager
-    stateManager.performMaintenance();
+    performMaintenance();
 
     // Save persistent sessions
-    stateManager.savePersistentSessions();
+    savePersistentSessions();
   }
 
   Future<void> start() async {
@@ -90,7 +115,7 @@ class MqttBroker {
 
       _isRunning = true;
       _startMaintenanceTimer();
-      await stateManager.loadPersistentSessions();
+      await loadPersistentSessions();
     } catch (e) {
       developer.log('Failed to start MQTT broker: $e');
       await stop();
@@ -180,6 +205,31 @@ class MqttBroker {
     return Future.value();
   }
 
+  void performMaintenance() {
+    //TODO: Clean up expired messages and expired sessions
+  }
+
+  Future<void> savePersistentSessions() async {
+    try {
+      if (!config.enablePersistence) return;
+      //TODO: Save persistent sessions to disk
+    } catch (e) {
+      developer.log('Error saving persistent sessions: $e');
+    }
+  }
+
+  /// Loads persistent sessions from disk
+  Future<void> loadPersistentSessions() async {
+    try {
+      if (!config.enablePersistence) return;
+      //TODO: Load persistent sessions from disk
+    } catch (e) {
+      developer.log('Error loading persistent sessions: $e');
+    }
+  }
+
+
+
   Future<void> stop() async {
     if (!_isRunning) return;
 
@@ -189,7 +239,9 @@ class MqttBroker {
     _maintenanceTimer?.cancel();
 
     // Clean up all state
-    await stateManager.dispose();
+    //TODO: Disconnect all clients
+
+    await savePersistentSessions();
 
     _isRunning = false;
     developer.log('MQTT Broker stopped');

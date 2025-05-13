@@ -77,6 +77,7 @@ class MqttConnection {
 
   Future<void> send(Uint8List data) async {
     try {
+      if (!isConnected) return;
       _socket.add(data);
       await _socket.flush(); // Ensure data is sent immediately
     } catch (e, stackTrace) {
