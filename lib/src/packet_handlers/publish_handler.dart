@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:mqtt_server/mqtt_server.dart';
@@ -41,7 +42,7 @@ class PublishHandler extends PacketHandlerBase {
         
         final subscriberConnection = _getConnection(subscriberId);
         final subscriberQos = subscriberSession.qosLevels[topic] ?? 0;
-        final effectiveQos = qos < subscriberQos ? qos : subscriberQos;
+        final effectiveQos = min(qos, subscriberQos);
 
         // If QoS > 0 , queue the message for message delivery
         if (effectiveQos > 0) {
