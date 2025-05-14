@@ -8,7 +8,7 @@ class DisconnectHandler extends PacketHandlerBase {
   DisconnectHandler(this._broker);
 
   @override
-  Future<void> handle(Uint8List data, MqttConnection connection, {int qos = 0, bool retain = false}) async {
+  Future<void> handle(Uint8List data, MqttConnection connection) async {
     if (connection.clientId == null) return;
 
     _broker.connectionsManager.disconnectClient(connection.clientId!);

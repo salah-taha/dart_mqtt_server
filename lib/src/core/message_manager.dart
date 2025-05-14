@@ -267,7 +267,7 @@ class MessageManager {
   Future<void> sendMessage({
     required String topic,
     required Uint8List payload,
-    required String senderId,
+    String? senderId,
     int messageQos = 0,
     bool retain = false,
     bool isDuplicate = false,
@@ -302,7 +302,7 @@ class MessageManager {
         _messageStore[clientId] ??= ListQueue<MqttMessage>();
         _messageStore[clientId]!.add(message);
 
-        if (effectiveQos == 2) {
+        if (effectiveQos == 2 && senderId != null) {
           var qos2Message = message.copyWith(
             state: QosMessageState.pubRelPending,
           );
@@ -349,6 +349,15 @@ class MessageManager {
 
       processQueuedMessages(clientId);
     } catch (_) {}
+  }
+
+  void notifyClientDisconnected(String clientId) {
+    var session = _broker.connectionsManager.getSession(clientId);
+    if (session == null) return;
+    if (session.willMessage == null || session.willTopic == null) return;
+    var willMessage = session.willMessage!;
+
+    sendMessage(topic: session.willTopic!, payload: willMessage.payload, messageQos: willMessage.qos);
   }
 
   /// Extracts message ID from a packet

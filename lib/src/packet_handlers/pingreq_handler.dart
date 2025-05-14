@@ -9,7 +9,7 @@ class PingreqHandler extends PacketHandlerBase {
   PingreqHandler(this._broker);
 
   @override
-  Future<void> handle(Uint8List data, MqttConnection connection, {int qos = 0, bool retain = false}) async {
+  Future<void> handle(Uint8List data, MqttConnection connection) async {
     if (connection.clientId == null) return;
     
     final session = _broker.connectionsManager.getSession(connection.clientId);

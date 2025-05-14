@@ -181,6 +181,7 @@ class MqttBroker {
 
   Future<void> _disconnectClient(MqttConnection connection) async {
     if (connection.clientId != null) {
+      messageManager.notifyClientDisconnected(connection.clientId!);
       connectionsManager.disconnectClient(connection.clientId!);
     } else {
       connection.disconnect();

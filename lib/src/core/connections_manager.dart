@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:mqtt_server/mqtt_server.dart';
 import 'package:mqtt_server/src/models/mqtt_connection.dart';
+import 'package:mqtt_server/src/models/mqtt_message.dart';
 import 'package:mqtt_server/src/models/mqtt_session.dart';
 
 /// Manages MQTT client connections and sessions
@@ -36,7 +37,7 @@ class ConnectionsManager {
     _sessions.remove(clientId);
   }
 
-  void createSession(String clientId, bool cleanSession) {
+  void createSession(String clientId, bool cleanSession, [String? willTopic, MqttMessage? willMessage]) {
     if (_sessions.containsKey(clientId) && !cleanSession) {
       return;
     }
@@ -44,7 +45,7 @@ class ConnectionsManager {
     if (oldSession != null) {
       _broker.messageManager.removeClientMessages(clientId);
     }
-    final session = MqttSession(clientId, cleanSession);
+    final session = MqttSession(clientId, cleanSession, willTopic: willTopic, willMessage: willMessage);
     _sessions[clientId] = session;
   }
 

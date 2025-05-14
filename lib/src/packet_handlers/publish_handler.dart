@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:mqtt_server/mqtt_server.dart';
 import 'package:mqtt_server/src/core/packet_generator.dart';
 import 'package:mqtt_server/src/core/packet_handler_base.dart';
+import 'package:mqtt_server/src/core/mqtt_packet_parser.dart';
 import 'package:mqtt_server/src/models/mqtt_connection.dart';
 
 class PublishHandler extends PacketHandlerBase {
@@ -11,7 +12,7 @@ class PublishHandler extends PacketHandlerBase {
   PublishHandler(this._broker);
 
   @override
-  Future<void> handle(Uint8List data, MqttConnection connection, {int qos = 0, bool retain = false}) async {
+  Future<void> handle(Uint8List data, MqttConnection connection) async {
     if (connection.clientId == null) return;
 
     final session = _broker.connectionsManager.getSession(connection.clientId);
@@ -19,15 +20,16 @@ class PublishHandler extends PacketHandlerBase {
       return;
     }
 
-    final extractResult = _broker.messageManager.extractPublishData(data);
-    if (extractResult == null) {
-      return;
-    }
+    // Use MqttPacketParser to parse the PUBLISH packet
+    final publishData = MqttPacketParser.parsePublishPacket(data);
 
-    final topic = extractResult['topic'] as String;
-    final payload = extractResult['payload'] as Uint8List;
-    final messageId = extractResult['messageId'] as int;
-    final isDuplicate = extractResult['isDuplicate'] as bool;
+    final topic = publishData.topic;
+    final payload = publishData.payload;
+    final messageId = publishData.messageId ?? 0;
+    final isDuplicate = publishData.duplicate;
+    final qos = publishData.qos;
+    final retain = publishData.retain;
+    
 
     // send message to subscribers
     await _broker.messageManager.sendMessage(

@@ -10,7 +10,7 @@ class MqttSession {
   int keepAlive;
   bool cleanSession;
 
-  MqttSession(this.clientId, this.cleanSession)
+  MqttSession(this.clientId, this.cleanSession, {this.willTopic, this.willMessage})
       : lastActivity = DateTime.now(),
         keepAlive = 60;
 

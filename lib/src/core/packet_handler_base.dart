@@ -5,5 +5,5 @@ abstract class PacketHandlerBase {
 
   PacketHandlerBase();
 
-  Future<void> handle(Uint8List data, MqttConnection connection, {int qos = 0, bool retain = false});
+  Future<void> handle(Uint8List data, MqttConnection connection);
 }

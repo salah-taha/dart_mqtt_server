@@ -1,9 +1,9 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:mqtt_server/mqtt_server.dart';
 import 'package:mqtt_server/src/core/packet_generator.dart';
 import 'package:mqtt_server/src/core/packet_handler_base.dart';
+import 'package:mqtt_server/src/core/mqtt_packet_parser.dart';
 import 'package:mqtt_server/src/models/mqtt_connection.dart';
 
 class UnsubscribeHandler extends PacketHandlerBase {
@@ -11,24 +11,17 @@ class UnsubscribeHandler extends PacketHandlerBase {
   UnsubscribeHandler(this._broker);
 
   @override
-  Future<void> handle(Uint8List data, MqttConnection connection, {int qos = 0, bool retain = false}) async {
+  Future<void> handle(Uint8List data, MqttConnection connection) async {
     if (connection.clientId == null) return;
 
     final session = _broker.connectionsManager.getSession(connection.clientId!);
-    final messageId = ((data[2] << 8) | data[3]);
-    var pos = 4;
-
-    while (pos < data.length) {
-      if (pos + 2 > data.length) break;
-
-      final topicLength = ((data[pos] << 8) | data[pos + 1]);
-      pos += 2;
-
-      if (pos + topicLength > data.length) break;
-
-      final topic = utf8.decode(data.sublist(pos, pos + topicLength));
-      pos += topicLength;
-
+    
+    // Use MqttPacketParser to parse the UNSUBSCRIBE packet
+    final unsubscribeData = MqttPacketParser.parseUnsubscribePacket(data);
+    final messageId = unsubscribeData.messageId;
+    
+    // Process each topic in the unsubscribe packet
+    for (final topic in unsubscribeData.topics) {
       session?.qosLevels.remove(topic);
       _broker.connectionsManager.unsubscribe(connection.clientId!, topic);
       _broker.messageManager.removeClientTopicMessages(connection.clientId!, topic);

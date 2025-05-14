@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'package:mqtt_server/mqtt_server.dart';
 import 'package:mqtt_server/src/models/mqtt_connection.dart';
 import 'package:mqtt_server/src/core/packet_handler_base.dart';
+import 'package:mqtt_server/src/core/mqtt_packet_parser.dart';
 import 'package:mqtt_server/src/packet_handlers/connect_handler.dart';
 import 'package:mqtt_server/src/packet_handlers/disconnect_handler.dart';
 import 'package:mqtt_server/src/packet_handlers/pingreq_handler.dart';
@@ -37,13 +38,12 @@ class PacketHandlerRegistry {
   Future<void> handlePacket(Uint8List data, MqttConnection client) async {
     if (data.isEmpty) return;
 
-    final packetType = (data[0] >> 4) & 0x0F;
-    final qos = (data[0] >> 1) & 0x03;
-    final retain = (data[0] & 0x01) == 0x01;
+    // Use MqttPacketParser to get the packet type
+    final packetType = MqttPacketParser.getPacketType(data);
 
     final handler = _handlers[packetType];
     if (handler != null) {
-      await handler.handle(data, client, qos: qos, retain: retain);
+      await handler.handle(data, client);
     }
   }
 }
