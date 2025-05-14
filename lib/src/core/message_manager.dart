@@ -153,13 +153,15 @@ class MessageManager {
     _processingLocks[clientId] = Completer<void>();
 
     if (!_messageStore.containsKey(clientId)) {
-      _processingLocks.remove(clientId);
+      var lock = _processingLocks.remove(clientId);
+      lock?.complete();
       return;
     }
 
     final queuedEntries = _messageStore[clientId];
     if (queuedEntries == null || queuedEntries.isEmpty) {
-      _processingLocks.remove(clientId);
+      var lock = _processingLocks.remove(clientId);
+      lock?.complete();
       return;
     }
 
@@ -238,7 +240,9 @@ class MessageManager {
           break;
       }
     } catch (e) {
-      // If there's an error, stop processing but keep all messages in queue
+      Future.delayed(_broker.config.retryInterval, () {
+        processQueuedMessages(clientId);
+      });
     } finally {
       _processingLocks[clientId]!.complete();
     }
