@@ -135,4 +135,50 @@ class ConnectionsManager {
       await disconnectClient(clientId);
     }
   }
+  
+  /// Get all client IDs that have sessions
+  Set<String> getAllSessionIds() {
+    return _sessions.keys.toSet();
+  }
+
+  /// Clean up expired sessions based on the provided expiry interval
+  /// Returns the number of sessions that were cleaned up
+  int cleanupExpiredSessions(Duration sessionExpiryInterval) {
+    final now = DateTime.now();
+    final expiredSessions = <String>[];
+
+    // Check each session for expiration
+    for (final clientId in _sessions.keys.toList()) {
+      final session = _sessions[clientId];
+      if (session == null) continue;
+
+      // Skip if client is still connected
+      if (isClientConnected(clientId)) {
+        continue;
+      }
+
+      // Check if session has expired
+      if (now.difference(session.lastActivity) > sessionExpiryInterval) {
+        // Only remove non-clean sessions that have expired
+        // Clean sessions are removed immediately on disconnect
+        if (!session.cleanSession) {
+          expiredSessions.add(clientId);
+        }
+      }
+    }
+
+    // Remove expired sessions
+    for (final clientId in expiredSessions) {
+      // Clean up the session
+      removeSession(clientId);
+
+      // Clean up subscriptions
+      cleanupClientSubscriptions(clientId);
+
+      // Clean up messages
+      _broker.messageManager.removeClientMessages(clientId);
+    }
+
+    return expiredSessions.length;
+  }
 }

@@ -27,7 +27,7 @@ class MqttBroker {
     connectionsManager = ConnectionsManager(this);
     _packetHandlerRegistry = PacketHandlerRegistry(this);
   }
-  
+
   void addCredentials(String username, String password) {
     _credentials[username] = MqttCredentials(username, password);
   }
@@ -185,15 +185,17 @@ class MqttBroker {
   }
 
   void performMaintenance() {
-    //TODO: Clean up expired messages and expired sessions
+    // Clean up expired messages
+    messageManager.cleanupExpiredMessages(config.messageExpiryInterval);
+    // Clean up expired sessions
+    connectionsManager.cleanupExpiredSessions(config.sessionExpiryInterval);
   }
 
   Future<void> savePersistentSessions() async {
     try {
       if (!config.enablePersistence) return;
       //TODO: Save persistent sessions to disk
-    } catch (_) {
-    }
+    } catch (_) {}
   }
 
   Future<void> loadPersistentSessions() async {
@@ -204,7 +206,6 @@ class MqttBroker {
       developer.log('Error loading persistent sessions: $e');
     }
   }
-
 
   Future<void> stop() async {
     if (!_isRunning) return;
