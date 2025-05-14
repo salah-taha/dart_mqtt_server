@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:mqtt_server/src/enums/qos_message_state.dart';
@@ -7,9 +8,12 @@ class MqttMessage {
   final int qos;
   final bool retain;
   final DateTime timestamp;
-  final String? topic; 
+  final String? topic;
   QosMessageState? state;
   int? messageId;
+  
+  // Helper method to get base64 encoded payload
+  String get encodedPayload => base64Encode(payload);
 
   MqttMessage(this.payload, this.qos, this.retain, DateTime? time, {this.topic, this.state, this.messageId})
       : timestamp = time ?? DateTime.now();
@@ -34,23 +38,44 @@ class MqttMessage {
     );
   }
 
-  Map<String, dynamic> toPersistentData() {
+  // Manual JSON serialization methods
+  factory MqttMessage.fromJson(Map<String, dynamic> json) {
+    // Convert base64 encoded payload back to Uint8List
+    final payload = base64Decode(json['encodedPayload'] as String);
+    
+    // Parse QosMessageState from string if present
+    QosMessageState? state;
+    if (json.containsKey('state') && json['state'] != null) {
+      final stateStr = json['state'] as String;
+      state = QosMessageState.values.firstWhere(
+        (s) => s.toString() == stateStr,
+        orElse: () => QosMessageState.pending,
+      );
+    }
+    
+    return MqttMessage(
+      payload,
+      json['qos'] as int,
+      json['retain'] as bool,
+      DateTime.parse(json['timestamp'] as String),
+      topic: json['topic'] as String?,
+      state: state,
+      messageId: json['messageId'] as int?,
+    );
+  }
+  
+  Map<String, dynamic> toJson() {
     return {
-      'payload': payload,
+      'encodedPayload': encodedPayload,
       'qos': qos,
       'retain': retain,
       'timestamp': timestamp.toIso8601String(),
       'topic': topic,
+      'state': state?.toString(),
+      'messageId': messageId,
     };
   }
 
-  factory MqttMessage.fromPersistentData(Map<String, dynamic> data) {
-    return MqttMessage(
-      data['payload'] as Uint8List,
-      data['qos'] as int,
-      data['retain'] as bool,
-      DateTime.parse(data['timestamp'] as String),
-      topic: data['topic'] as String?,
-    );
-  }
+
+ 
 }

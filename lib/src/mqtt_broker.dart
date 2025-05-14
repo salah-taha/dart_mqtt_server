@@ -1,13 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:developer' as developer;
 import 'dart:io';
 import 'dart:typed_data';
+
+import 'package:path/path.dart' as path;
 
 import 'package:mqtt_server/mqtt_server.dart';
 import 'package:mqtt_server/src/core/connections_manager.dart';
 import 'package:mqtt_server/src/core/packet_handler_registry.dart';
 import 'package:mqtt_server/src/models/mqtt_connection.dart';
 import 'package:mqtt_server/src/models/mqtt_credentials.dart';
+import 'package:mqtt_server/src/models/mqtt_session.dart';
 
 class MqttBroker {
   late MqttBrokerConfig config;
@@ -194,16 +198,71 @@ class MqttBroker {
   Future<void> savePersistentSessions() async {
     try {
       if (!config.enablePersistence) return;
-      //TODO: Save persistent sessions to disk
+      
+      // Get all persistent sessions (non-clean sessions)
+      final persistentSessions = <String, Map<String, dynamic>>{};
+      final sessionIds = connectionsManager.getAllSessionIds();
+
+      for (final clientId in sessionIds) {
+        final session = connectionsManager.getSession(clientId);
+        if (session != null && !session.cleanSession) {
+          // Only save non-clean sessions
+          persistentSessions[clientId] = session.toJson();
+        }
+      }
+
+      if (persistentSessions.isEmpty) {
+        return;
+      }
+
+      // Create the sessions directory if it doesn't exist
+      final sessionsDir = Directory(path.dirname(config.persistencePath));
+      if (!await sessionsDir.exists()) {
+        await sessionsDir.create(recursive: true);
+      }
+
+      // Save sessions to file
+      final file = File(config.persistencePath);
+      final jsonData = jsonEncode(persistentSessions);
+      await file.writeAsString(jsonData);
     } catch (_) {}
   }
 
   Future<void> loadPersistentSessions() async {
     try {
       if (!config.enablePersistence) return;
-      //TODO: Load persistent sessions from disk
-    } catch (e) {
-      developer.log('Error loading persistent sessions: $e');
+      
+      final file = File(config.persistencePath);
+      if (!await file.exists()) {
+        return;
+      }
+
+      // Read the file content
+      final jsonData = await file.readAsString();
+      final Map<String, dynamic> sessionsData = jsonDecode(jsonData);
+
+      // Load each session
+      for (final clientId in sessionsData.keys) {
+        try {
+          final sessionData = sessionsData[clientId] as Map<String, dynamic>;
+          final session = MqttSession.fromJson(sessionData);
+
+          // Register the session
+          connectionsManager.createSession(clientId, false);
+          final newSession = connectionsManager.getSession(clientId);
+
+          if (newSession != null) {
+            // Copy properties from loaded session to new session
+            newSession.qosLevels.addAll(session.qosLevels);
+            newSession.messageId = session.messageId;
+            newSession.willMessage = session.willMessage;
+            newSession.willTopic = session.willTopic;
+            newSession.lastActivity = session.lastActivity;
+            newSession.keepAlive = session.keepAlive;
+          }
+        } catch (_) {}
+      }
+    } catch (_) {
     }
   }
 

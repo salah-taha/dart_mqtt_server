@@ -14,38 +14,60 @@ class MqttSession {
       : lastActivity = DateTime.now(),
         keepAlive = 60;
 
-  factory MqttSession.fromPersistentData(Map<String, dynamic> data) {
-    var clientId = data['clientId'] as String? ?? '';
-    final session = MqttSession(clientId, data['cleanSession'] ?? true);
-
-    if (data.containsKey('qosLevels')) {
-      final qosMap = data['qosLevels'] as Map<String, dynamic>;
+  // Manual JSON serialization methods
+  factory MqttSession.fromJson(Map<String, dynamic> json) {
+    final session = MqttSession(
+      json['clientId'] as String,
+      json['cleanSession'] as bool,
+    );
+    
+    // Parse qosLevels
+    if (json.containsKey('qosLevels') && json['qosLevels'] != null) {
+      final qosMap = json['qosLevels'] as Map<String, dynamic>;
       session.qosLevels.addAll(
         qosMap.map((key, value) => MapEntry(key, value as int)),
       );
     }
-
-    if (data.containsKey('messageId')) {
-      session.messageId = data['messageId'] as int;
+    
+    // Parse messageId
+    if (json.containsKey('messageId')) {
+      session.messageId = json['messageId'] as int;
     }
-
-    if (data.containsKey('willMessage')) {
-      session.willMessage = MqttMessage.fromPersistentData(data['willMessage'] as Map<String, dynamic>);
+    
+    // Parse willMessage
+    if (json.containsKey('willMessage') && json['willMessage'] != null) {
+      session.willMessage = MqttMessage.fromJson(json['willMessage'] as Map<String, dynamic>);
     }
-
-    if (data.containsKey('willTopic')) {
-      session.willTopic = data['willTopic'] as String;
+    
+    // Parse willTopic
+    if (json.containsKey('willTopic')) {
+      session.willTopic = json['willTopic'] as String?;
     }
-
-    if (data.containsKey('lastActivity')) {
-      session.lastActivity = DateTime.parse(data['lastActivity'] as String);
+    
+    // Parse lastActivity
+    if (json.containsKey('lastActivity')) {
+      session.lastActivity = DateTime.parse(json['lastActivity'] as String);
     }
-
-    if (data.containsKey('keepAlive')) {
-      session.keepAlive = data['keepAlive'] as int;
+    
+    // Parse keepAlive
+    if (json.containsKey('keepAlive')) {
+      session.keepAlive = json['keepAlive'] as int;
     }
-
+    
     return session;
+  }
+  
+  Map<String, dynamic> toJson() {
+    return {
+      'clientId': clientId,
+      'qosLevels': qosLevels,
+      'messageId': messageId,
+      'willMessage': willMessage?.toJson(),
+      'willTopic': willTopic,
+      'lastActivity': lastActivity.toIso8601String(),
+      'keepAlive': keepAlive,
+      'cleanSession': cleanSession,
+    };
   }
 
   int getNextMessageId() {
@@ -54,17 +76,4 @@ class MqttSession {
     return messageId;
   }
 
-  Map<String, dynamic> toPersistentData() {
-    return {
-      'qosLevels': qosLevels,
-      'timestamp': DateTime.now().toIso8601String(),
-      'messageId': messageId,
-      'willMessage': willMessage?.toPersistentData(),
-      'willTopic': willTopic,
-      'lastActivity': lastActivity.toIso8601String(),
-      'keepAlive': keepAlive,
-      'cleanSession': cleanSession,
-      'clientId': clientId,
-    };
-  }
 }
