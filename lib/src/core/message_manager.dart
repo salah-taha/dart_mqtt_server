@@ -208,7 +208,7 @@ class MessageManager {
           connection.send(publishPacket);
           message.state = QosMessageState.pubAckPending;
 
-          Future.delayed(Duration(minutes: 1), () {
+          Future.delayed(_broker.config.retryInterval, () {
             processQueuedMessages(clientId);
           });
 
@@ -231,7 +231,7 @@ class MessageManager {
           connection.send(publishPacket);
           message.state = QosMessageState.pubRecPending;
 
-          Future.delayed(Duration(minutes: 1), () {
+          Future.delayed(_broker.config.retryInterval, () {
             processQueuedMessages(clientId);
           });
 

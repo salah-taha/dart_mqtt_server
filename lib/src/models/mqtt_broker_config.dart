@@ -8,12 +8,11 @@ class MqttBrokerConfig {
   final Duration messageExpiryInterval;
   final bool enablePersistence;
   final bool authenticationRequired;
-  final int maxRetryAttempts;
   final String persistencePath;
+  final Duration retryInterval;
 
   const MqttBrokerConfig({
     this.authenticationRequired = true,
-    this.maxRetryAttempts = 3,
     this.port = 1883,
     this.useSSL = false,
     this.sslCertPath,
@@ -23,5 +22,6 @@ class MqttBrokerConfig {
     this.messageExpiryInterval = const Duration(minutes: 5),
     this.enablePersistence = false,
     this.persistencePath = 'mqtt_sessions.json',
+    this.retryInterval = const Duration(minutes: 1),
   });
 }
