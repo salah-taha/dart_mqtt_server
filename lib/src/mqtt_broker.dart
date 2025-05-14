@@ -215,8 +215,7 @@ class MqttBroker {
     _secureServer?.close();
     _maintenanceTimer?.cancel();
 
-    // Clean up all state
-    //TODO: Disconnect all clients
+    await connectionsManager.dispose();
 
     await savePersistentSessions();
 
