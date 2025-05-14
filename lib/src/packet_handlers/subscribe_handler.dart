@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:mqtt_server/src/core/packet_generator.dart';
 import 'package:mqtt_server/src/core/packet_handler_base.dart';
 import 'package:mqtt_server/src/models/mqtt_connection.dart';
 import 'package:mqtt_server/src/mqtt_broker.dart';
@@ -25,15 +26,11 @@ class SubscribeHandler extends PacketHandlerBase {
 
       session?.qosLevels[topic] = requestedQos;
 
-      // Add client to topic subscribers
       _broker.connectionsManager.subscribe(connection.clientId!, topic, qos);
-
-      //TODO: Send retained messages for this topic
+      _broker.messageManager.sendRetainedMessage(clientId: connection.clientId!, topic: topic);
     }
 
-    // Send SUBACK using the MessageManager
-    final suback = _broker.messageManager.createSubackPacket(messageId, grantedQos);
-
+    final suback = PacketGenerator.subackPacket(messageId, grantedQos);
     await connection.send(suback);
 
     session?.lastActivity = DateTime.now();

@@ -4,7 +4,6 @@ import 'package:mqtt_server/src/core/packet_handler_base.dart';
 import 'package:mqtt_server/src/models/mqtt_connection.dart';
 import 'package:mqtt_server/src/mqtt_broker.dart';
 
-
 class PubackHandler extends PacketHandlerBase {
   final MqttBroker _broker;
   PubackHandler(this._broker);

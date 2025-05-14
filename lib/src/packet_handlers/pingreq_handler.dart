@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:mqtt_server/src/core/packet_generator.dart';
 import 'package:mqtt_server/src/models/mqtt_connection.dart';
 import 'package:mqtt_server/src/core/packet_handler_base.dart';
 import 'package:mqtt_server/src/mqtt_broker.dart';
@@ -15,7 +16,7 @@ class PingreqHandler extends PacketHandlerBase {
     if (session == null) return;
 
     // Send PINGRESP
-    final pingresp = Uint8List.fromList([0xD0, 0x00]);
+    final pingresp = PacketGenerator.pingrespPacket();
     await connection.send(pingresp);
 
     session.lastActivity = DateTime.now();

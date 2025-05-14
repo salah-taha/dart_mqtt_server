@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:mqtt_server/mqtt_server.dart';
+import 'package:mqtt_server/src/core/packet_generator.dart';
 import 'package:mqtt_server/src/core/packet_handler_base.dart';
 import 'package:mqtt_server/src/models/mqtt_connection.dart';
 
@@ -21,13 +22,7 @@ class PubrecHandler extends PacketHandlerBase {
     var messageExisting = _broker.messageManager.incomingPubRec(messageId, connection.clientId!);
 
     if (messageExisting) {
-      // Send PUBREL
-      final pubrelPacket = Uint8List(4);
-      pubrelPacket[0] = 0x62; // PUBREL with QoS 1
-      pubrelPacket[1] = 0x02; // Remaining length
-      pubrelPacket[2] = data[2]; // Message ID MSB
-      pubrelPacket[3] = data[3]; // Message ID LSB
-
+      final pubrelPacket = PacketGenerator.pubrelPacket(messageId);
       await connection.send(pubrelPacket);
     }
     session.lastActivity = DateTime.now();

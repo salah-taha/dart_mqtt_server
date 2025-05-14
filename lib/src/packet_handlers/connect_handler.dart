@@ -2,9 +2,9 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:mqtt_server/src/core/packet_generator.dart';
 import 'package:mqtt_server/src/core/packet_handler_base.dart';
 import 'package:mqtt_server/src/models/mqtt_connection.dart';
-import 'package:mqtt_server/src/models/mqtt_session.dart';
 import 'package:mqtt_server/src/mqtt_broker.dart';
 
 
@@ -137,8 +137,7 @@ class ConnectHandler extends PacketHandlerBase {
       }
 
       // Create session and associate with connection
-      final session = MqttSession(clientId, cleanSession);
-      _broker.connectionsManager.addSession(clientId, session);
+      _broker.connectionsManager.createSession(clientId, cleanSession);
       connection.clientId = clientId;
 
       // Send CONNACK
@@ -156,7 +155,7 @@ class ConnectHandler extends PacketHandlerBase {
   }
 
   Future<void> _sendConnack(MqttConnection connection, int returnCode) async {
-    final connack = Uint8List.fromList([0x20, 0x02, 0x00, returnCode]);
+    final connack = PacketGenerator.connectackPacket(returnCode);
     await connection.send(connack);
   }
 

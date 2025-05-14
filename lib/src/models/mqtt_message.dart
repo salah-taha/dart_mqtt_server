@@ -7,7 +7,7 @@ class MqttMessage {
   final int qos;
   final bool retain;
   final DateTime timestamp;
-  final String? topic; // Topic this message belongs to
+  final String? topic; 
   QosMessageState? state;
   int? messageId;
 

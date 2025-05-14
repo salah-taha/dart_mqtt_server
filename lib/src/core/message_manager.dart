@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:mqtt_server/mqtt_server.dart';
+import 'package:mqtt_server/src/core/packet_generator.dart';
 import 'package:mqtt_server/src/enums/qos_message_state.dart';
 import 'package:mqtt_server/src/models/mqtt_message.dart';
 
@@ -11,6 +13,8 @@ class MessageManager {
   final MqttBroker _broker;
 
   MessageManager(this._broker);
+
+  final Map<String, Completer<void>> _processingLocks = {};
 
   // Store for retained messages (topic -> message)
   final Map<String, MqttMessage> _retainedMessages = {};
@@ -22,10 +26,41 @@ class MessageManager {
   // Getters for message stores
   Map<String, MqttMessage> get retainedMessages => _retainedMessages;
 
-  void incomingPubAck(int messageId, String clientId) {
-    _messageStore[clientId]?.removeWhere((message) => message.messageId == messageId);
+  bool incomingPubAck(int messageId, String clientId) {
+    var messages = _messageStore[clientId];
+    if (messages == null || messages.isEmpty) return false;
 
-    processQueuedMessages(clientId);
+    if (messages.any((message) => message.messageId == messageId && message.state == QosMessageState.pubAckPending)) {
+      var message = messages.firstWhere((message) => message.messageId == messageId);
+      messages.remove(message);
+
+      if (messages.isEmpty) {
+        _messageStore.remove(clientId);
+      }
+
+      processQueuedMessages(clientId);
+      return true;
+    }
+
+    return false;
+  }
+
+  bool incomingPubComp(int messageId, String clientId) {
+    var messages = _messageStore[clientId];
+    if (messages == null || messages.isEmpty) return false;
+
+    if (messages.any((message) => message.messageId == messageId && message.state == QosMessageState.pubCompPending)) {
+      var message = messages.firstWhere((message) => message.messageId == messageId);
+      messages.remove(message);
+
+      if (messages.isEmpty) {
+        _messageStore.remove(clientId);
+      }
+
+      processQueuedMessages(clientId);
+      return true;
+    }
+    return false;
   }
 
   bool incomingPubRec(int messageId, String clientId) {
@@ -42,13 +77,19 @@ class MessageManager {
 
   bool incomingPubRel(int messageId, String clientId) {
     var messages = _qos2Store[clientId];
-    if (messages == null || messages.isEmpty) return false;
+    if (messages == null || messages.isEmpty) {
+      return false;
+    }
 
     if (!messages.any((message) => message.messageId == messageId && message.state == QosMessageState.pubRelPending)) {
       return false;
     }
 
     messages.removeWhere((message) => message.messageId == messageId);
+
+    if (messages.isEmpty) {
+      _qos2Store.remove(clientId);
+    }
     return true;
   }
 
@@ -90,120 +131,6 @@ class MessageManager {
     }
   }
 
-  /// Creates a PUBLISH packet from direct parameters
-  Uint8List createPublishPacket({
-    required String topic,
-    required Uint8List payload,
-    required int qos,
-    required int messageId,
-    required bool retain,
-    required bool isDuplicate,
-  }) {
-    // Calculate remaining length
-    final topicBytes = utf8.encode(topic);
-    int remainingLength = 2 + topicBytes.length + payload.length; // 2 for topic length
-    if (qos > 0) remainingLength += 2; // 2 for message ID if QoS > 0
-
-    // Create header byte
-    int headerByte = 0x30; // PUBLISH packet type
-    if (isDuplicate) headerByte |= 0x08; // DUP flag
-    if (qos > 0) headerByte |= (qos << 1); // QoS level
-    if (retain) headerByte |= 0x01; // RETAIN flag
-
-    final publishPacket = BytesBuilder();
-    publishPacket.addByte(headerByte);
-
-    addRemainingLength(publishPacket, remainingLength);
-
-    // Add topic
-    publishPacket.addByte((topicBytes.length >> 8) & 0xFF);
-    publishPacket.addByte(topicBytes.length & 0xFF);
-    publishPacket.add(topicBytes);
-
-    // Add message ID for QoS > 0
-    if (qos > 0) {
-      publishPacket.addByte((messageId >> 8) & 0xFF);
-      publishPacket.addByte(messageId & 0xFF);
-    }
-
-    // Add payload
-    publishPacket.add(payload);
-    return publishPacket.toBytes();
-  }
-
-  Uint8List createSubackPacket(int messageId, List<int> grantedQos) {
-    final suback = Uint8List(4 + grantedQos.length);
-    suback[0] = 0x90; // SUBACK packet type
-    suback[1] = 2 + grantedQos.length; // Remaining length
-    suback[2] = (messageId >> 8) & 0xFF; // Message ID MSB
-    suback[3] = messageId & 0xFF; // Message ID LSB
-
-    // Add granted QoS levels
-    for (var i = 0; i < grantedQos.length; i++) {
-      suback[4 + i] = grantedQos[i];
-    }
-
-    return suback;
-  }
-
-  /// Creates a PUBACK packet (for QoS 1)
-  Uint8List createPubackPacket(int messageId) {
-    final puback = Uint8List(4);
-    puback[0] = 0x40; // PUBACK packet type
-    puback[1] = 0x02; // Remaining length
-    puback[2] = (messageId >> 8) & 0xFF; // Message ID MSB
-    puback[3] = messageId & 0xFF; // Message ID LSB
-    return puback;
-  }
-
-  /// Creates a PUBREC packet (for QoS 2, first response)
-  Uint8List createPubrecPacket(int messageId) {
-    final pubrec = Uint8List(4);
-    pubrec[0] = 0x50; // PUBREC packet type
-    pubrec[1] = 0x02; // Remaining length
-    pubrec[2] = (messageId >> 8) & 0xFF; // Message ID MSB
-    pubrec[3] = messageId & 0xFF; // Message ID LSB
-    return pubrec;
-  }
-
-  /// Creates a PUBREL packet (for QoS 2, second response)
-  Uint8List createPubrelPacket(int messageId) {
-    final pubrel = Uint8List(4);
-    pubrel[0] = 0x62; // PUBREL packet type (includes required flags)
-    pubrel[1] = 0x02; // Remaining length
-    pubrel[2] = (messageId >> 8) & 0xFF; // Message ID MSB
-    pubrel[3] = messageId & 0xFF; // Message ID LSB
-    return pubrel;
-  }
-
-  /// Creates a PUBCOMP packet (for QoS 2, final response)
-  Uint8List createPubcompPacket(int messageId) {
-    final pubcomp = Uint8List(4);
-    pubcomp[0] = 0x70; // PUBCOMP packet type
-    pubcomp[1] = 0x02; // Remaining length
-    pubcomp[2] = (messageId >> 8) & 0xFF; // Message ID MSB
-    pubcomp[3] = messageId & 0xFF; // Message ID LSB
-    return pubcomp;
-  }
-
-  /// Creates an UNSUBACK packet
-  Uint8List createUnsubackPacket(int messageId) {
-    final unsuback = Uint8List(4);
-    unsuback[0] = 0xB0; // UNSUBACK packet type
-    unsuback[1] = 0x02; // Remaining length
-    unsuback[2] = (messageId >> 8) & 0xFF; // Message ID MSB
-    unsuback[3] = messageId & 0xFF; // Message ID LSB
-    return unsuback;
-  }
-
-  /// Creates a PINGRESP packet
-  Uint8List createPingrespPacket() {
-    final pingresp = Uint8List(2);
-    pingresp[0] = 0xD0; // PINGRESP packet type
-    pingresp[1] = 0x00; // Remaining length
-    return pingresp;
-  }
-
   /// Stores a retained message for a topic
   void storeRetainedMessage(String topic, Uint8List payload, int qos, bool retain) {
     if (retain) {
@@ -218,10 +145,23 @@ class MessageManager {
   }
 
   void processQueuedMessages(String clientId) async {
-    if (!_messageStore.containsKey(clientId)) return;
+    if (_processingLocks.containsKey(clientId)) {
+      var lock = _processingLocks[clientId]!;
+      await lock.future;
+    }
+
+    _processingLocks[clientId] = Completer<void>();
+
+    if (!_messageStore.containsKey(clientId)) {
+      _processingLocks.remove(clientId);
+      return;
+    }
 
     final queuedEntries = _messageStore[clientId];
-    if (queuedEntries == null || queuedEntries.isEmpty) return;
+    if (queuedEntries == null || queuedEntries.isEmpty) {
+      _processingLocks.remove(clientId);
+      return;
+    }
 
     final message = queuedEntries.first;
 
@@ -231,7 +171,7 @@ class MessageManager {
       switch (message.qos) {
         case 0: // QoS 0: At most once delivery
 
-          final publishPacket = createPublishPacket(
+          final publishPacket = PacketGenerator.publishPacket(
             topic: topic,
             payload: message.payload,
             qos: 0,
@@ -243,7 +183,7 @@ class MessageManager {
           queuedEntries.removeFirst();
 
           final connection = _broker.connectionsManager.getConnection(clientId);
-          if (connection == null) return;
+          if (connection == null) break;
 
           connection.send(publishPacket);
           await Future.delayed(Duration(milliseconds: 50));
@@ -253,7 +193,7 @@ class MessageManager {
 
         case 1: // QoS 1: At least once delivery
 
-          final publishPacket = createPublishPacket(
+          final publishPacket = PacketGenerator.publishPacket(
             topic: topic,
             payload: message.payload,
             qos: 1,
@@ -263,7 +203,7 @@ class MessageManager {
           );
 
           final connection = _broker.connectionsManager.getConnection(clientId);
-          if (connection == null) return;
+          if (connection == null) break;
 
           connection.send(publishPacket);
           message.state = QosMessageState.pubAckPending;
@@ -272,7 +212,7 @@ class MessageManager {
 
         case 2: // QoS 2: Exactly once delivery
 
-          final publishPacket = createPublishPacket(
+          final publishPacket = PacketGenerator.publishPacket(
             topic: topic,
             payload: message.payload,
             qos: 2,
@@ -282,7 +222,7 @@ class MessageManager {
           );
 
           final connection = _broker.connectionsManager.getConnection(clientId);
-          if (connection == null) return;
+          if (connection == null) break;
 
           connection.send(publishPacket);
           message.state = QosMessageState.pubRecPending;
@@ -291,12 +231,18 @@ class MessageManager {
       }
     } catch (e) {
       // If there's an error, stop processing but keep all messages in queue
+    } finally {
+      _processingLocks[clientId]!.complete();
     }
   }
 
   /// Remove all messages for a client
   void removeClientMessages(String clientId) {
     _messageStore.remove(clientId);
+  }
+
+  void removeClientTopicMessages(String clientId, String topic) {
+    _messageStore[clientId]?.removeWhere((message) => message.topic == topic);
   }
 
   /// Clean up expired messages
@@ -331,8 +277,6 @@ class MessageManager {
 
     for (var clientId in subscripers) {
       try {
-        // For QoS 0, just send the message
-        // For QoS 1 and 2, we need a message ID
         var session = _broker.connectionsManager.getSession(clientId);
         var actualMessageId = 0;
 
@@ -341,9 +285,10 @@ class MessageManager {
           actualMessageId = messageId ?? session?.getNextMessageId() ?? 0;
         }
 
-        //TODO: check if message is already in the message store
+        if (isDuplicate && _messageStore[clientId]?.any((message) => message.messageId == actualMessageId) == true) {
+          continue;
+        }
 
-        // create message and store it in the message store
         var message = MqttMessage(
           payload,
           effectiveQos,
@@ -366,9 +311,44 @@ class MessageManager {
         }
 
         processQueuedMessages(clientId);
-      } catch (_) {
-      }
+      } catch (_) {}
     }
+  }
+
+  Future<void> sendRetainedMessage({
+    required String clientId,
+    required String topic,
+  }) async {
+    try {
+      var retainedMessage = _retainedMessages[topic];
+
+      if (retainedMessage == null) {
+        return;
+      }
+
+      var session = _broker.connectionsManager.getSession(clientId);
+      var actualMessageId = 0;
+
+      var effectiveQos = min(retainedMessage.qos, session?.qosLevels[topic] ?? 0);
+      if (effectiveQos > 0) {
+        actualMessageId = retainedMessage.messageId ?? session?.getNextMessageId() ?? 0;
+      }
+
+      if (_messageStore[clientId]?.any((message) => message.messageId == actualMessageId) == true) {
+        return;
+      }
+
+      var message = retainedMessage.copyWith(
+        messageId: actualMessageId,
+        state: QosMessageState.pending,
+        timestamp: DateTime.now(),
+      );
+
+      _messageStore[clientId] ??= ListQueue<MqttMessage>();
+      _messageStore[clientId]!.add(message);
+
+      processQueuedMessages(clientId);
+    } catch (_) {}
   }
 
   /// Extracts message ID from a packet
@@ -426,17 +406,5 @@ class MessageManager {
     }
 
     return result;
-  }
-
-  /// Adds the remaining length encoding to a packet
-  void addRemainingLength(BytesBuilder builder, int length) {
-    do {
-      var byte = length % 128;
-      length = length ~/ 128;
-      if (length > 0) {
-        byte = byte | 0x80;
-      }
-      builder.addByte(byte);
-    } while (length > 0);
   }
 }

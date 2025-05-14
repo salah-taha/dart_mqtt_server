@@ -19,8 +19,7 @@ class PubcompHandler extends PacketHandlerBase {
 
     final messageId = ((data[2] << 8) | data[3]);
 
-    // Remove message from in-flight messages
-    _broker.messageManager.incomingPubAck(messageId, connection.clientId!);
+    _broker.messageManager.incomingPubComp(messageId, connection.clientId!);
 
     session.lastActivity = DateTime.now();
   }

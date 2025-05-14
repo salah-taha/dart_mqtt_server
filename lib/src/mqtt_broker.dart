@@ -10,22 +10,12 @@ import 'package:mqtt_server/src/models/mqtt_connection.dart';
 import 'package:mqtt_server/src/models/mqtt_credentials.dart';
 
 class MqttBroker {
-  // Configuration
   late MqttBrokerConfig config;
-
-  // Message manager
   late MessageManager messageManager;
-
-  // Connections manager
   late ConnectionsManager connectionsManager;
-
-  // Handler registry
   late PacketHandlerRegistry _packetHandlerRegistry;
-
-  // User credentials
   final Map<String, MqttCredentials> _credentials = {};
 
-  // Server infrastructure
   ServerSocket? _server;
   SecureServerSocket? _secureServer;
   Timer? _maintenanceTimer;
@@ -34,26 +24,22 @@ class MqttBroker {
   MqttBroker([MqttBrokerConfig? brokerConfig]) {
     config = brokerConfig ?? MqttBrokerConfig();
     messageManager = MessageManager(this);
-    connectionsManager = ConnectionsManager();
+    connectionsManager = ConnectionsManager(this);
     _packetHandlerRegistry = PacketHandlerRegistry(this);
   }
   
-  /// Adds a user credential to the broker
-  void addUser(String username, String password) {
+  void addCredentials(String username, String password) {
     _credentials[username] = MqttCredentials(username, password);
   }
 
-  /// Removes a user from the broker
-  void removeUser(String username) {
+  void removeCredentials(String username) {
     _credentials.remove(username);
   }
 
-  /// Gets all credentials
   Map<String, MqttCredentials> getCredentials() {
     return _credentials;
   }
 
-  /// Authenticates a user
   bool authenticate(String? username, String? password) {
     if (config.allowAnonymous) return true;
     if (username == null || password == null) return false;
@@ -71,10 +57,7 @@ class MqttBroker {
   }
 
   void _performMaintenance() {
-    // Delegate maintenance to state manager
     performMaintenance();
-
-    // Save persistent sessions
     savePersistentSessions();
   }
 
@@ -146,7 +129,6 @@ class MqttBroker {
             final packetData = Uint8List.fromList(buffer.sublist(0, totalLength));
             buffer = buffer.sublist(totalLength);
 
-            // Process immediately instead of scheduling
             _packetHandlerRegistry.handlePacket(packetData, connection);
           }
         } catch (e, stackTrace) {
@@ -195,9 +177,8 @@ class MqttBroker {
 
   Future<void> _disconnectClient(MqttConnection connection) async {
     if (connection.clientId != null) {
-      connectionsManager.disconnectClient(connection.clientId!, clearSession: false);
+      connectionsManager.disconnectClient(connection.clientId!);
     } else {
-      // If we can't find the client ID, just disconnect the connection
       connection.disconnect();
     }
     return Future.value();
@@ -215,7 +196,6 @@ class MqttBroker {
     }
   }
 
-  /// Loads persistent sessions from disk
   Future<void> loadPersistentSessions() async {
     try {
       if (!config.enablePersistence) return;
@@ -224,7 +204,6 @@ class MqttBroker {
       developer.log('Error loading persistent sessions: $e');
     }
   }
-
 
 
   Future<void> stop() async {

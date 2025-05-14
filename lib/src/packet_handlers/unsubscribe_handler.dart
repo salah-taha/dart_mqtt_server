@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:mqtt_server/mqtt_server.dart';
+import 'package:mqtt_server/src/core/packet_generator.dart';
 import 'package:mqtt_server/src/core/packet_handler_base.dart';
 import 'package:mqtt_server/src/models/mqtt_connection.dart';
 
@@ -28,17 +29,12 @@ class UnsubscribeHandler extends PacketHandlerBase {
       final topic = utf8.decode(data.sublist(pos, pos + topicLength));
       pos += topicLength;
 
-      // Remove QoS level for this topic
       session?.qosLevels.remove(topic);
-
-      // Remove client from topic subscribers
       _broker.connectionsManager.unsubscribe(connection.clientId!, topic);
-
-      //TODO: remove topic messages in queue
+      _broker.messageManager.removeClientTopicMessages(connection.clientId!, topic);
     }
 
-    // Send UNSUBACK
-    final unsuback = Uint8List.fromList([0xB0, 0x02, (messageId >> 8) & 0xFF, messageId & 0xFF]);
+    final unsuback = PacketGenerator.unsubackPacket(messageId);
     await connection.send(unsuback);
 
     session?.lastActivity = DateTime.now();

@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
 import 'package:mqtt_server/mqtt_server.dart';
+import 'package:mqtt_server/src/core/packet_generator.dart';
 import 'package:mqtt_server/src/core/packet_handler_base.dart';
 import 'package:mqtt_server/src/models/mqtt_connection.dart';
-
 
 class PubrelHandler extends PacketHandlerBase {
   final MqttBroker _broker;
@@ -21,15 +21,10 @@ class PubrelHandler extends PacketHandlerBase {
     var messageExisting = _broker.messageManager.incomingPubRel(messageId, connection.clientId!);
 
     if (messageExisting) {
-      // Send PUBCOMP
-      final pubcompPacket = Uint8List(4);
-      pubcompPacket[0] = 0x70; // PUBCOMP
-      pubcompPacket[1] = 0x02; // Remaining length
-      pubcompPacket[2] = data[2]; // Message ID MSB
-      pubcompPacket[3] = data[3]; // Message ID LSB
-
+      final pubcompPacket = PacketGenerator.pubcompPacket(messageId);
       await connection.send(pubcompPacket);
     }
+    
     session.lastActivity = DateTime.now();
   }
 }
