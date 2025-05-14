@@ -208,6 +208,10 @@ class MessageManager {
           connection.send(publishPacket);
           message.state = QosMessageState.pubAckPending;
 
+          Future.delayed(Duration(minutes: 1), () {
+            processQueuedMessages(clientId);
+          });
+
           break;
 
         case 2: // QoS 2: Exactly once delivery
@@ -226,6 +230,10 @@ class MessageManager {
 
           connection.send(publishPacket);
           message.state = QosMessageState.pubRecPending;
+
+          Future.delayed(Duration(minutes: 1), () {
+            processQueuedMessages(clientId);
+          });
 
           break;
       }
