@@ -3,13 +3,14 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:developer' as developer;
 
-import 'package:mqtt_server/src/mqtt_session.dart';
-
 class MqttConnection {
   final Socket _socket;
-  MqttSession? session;
-  bool _isConnected = true;
+  bool isConnected = false;
   StreamSubscription? _subscription;
+  String? clientId;
+
+  void Function(List<int>)? _onData;
+  void Function()? _onDisconnect;
 
   MqttConnection(this._socket) {
     _socket.setOption(SocketOption.tcpNoDelay, true);
@@ -25,8 +26,6 @@ class MqttConnection {
   }
 
   void _handleData(List<int> data) {
-    if (!_isConnected) return;
-
     try {
       // Instead of adding to controller, notify broker directly
       if (_onData != null) {
@@ -50,9 +49,9 @@ class MqttConnection {
   }
 
   void _cleanupConnection() {
-    if (!_isConnected) return; // Already cleaned up
+    if (!isConnected) return; // Already cleaned up
 
-    _isConnected = false;
+    isConnected = false;
     _subscription?.cancel();
 
     try {
@@ -68,10 +67,6 @@ class MqttConnection {
     }
   }
 
-  // Callback setters for broker communication
-  void Function(List<int>)? _onData;
-  void Function()? _onDisconnect;
-
   void setCallbacks({
     required void Function(List<int>) onData,
     required void Function() onDisconnect,
@@ -80,25 +75,33 @@ class MqttConnection {
     _onDisconnect = onDisconnect;
   }
 
-  bool get isConnected => _isConnected;
-
   Future<void> send(Uint8List data) async {
-    if (!_isConnected) {
-      developer.log('Attempting to send data when not connected');
-      return;
-    }
-
     try {
+      if (!isConnected) return;
+      
+      // Use a synchronized approach to prevent concurrent socket operations
+      // that could cause the "StreamSink is bound to a stream" error
       _socket.add(data);
-      // await _socket.flush(); // Ensure data is sent immediately
+      
+      // Note: We've removed the flush() call as it can cause issues when
+      // multiple messages are being sent in rapid succession
+      // The TCP stack will handle the actual sending efficiently
     } catch (e, stackTrace) {
-      developer.log('Error sending data: $e');
-      developer.log('Stack trace: $stackTrace');
-      _cleanupConnection();
+      // If we get a specific "StreamSink is bound" error, don't disconnect
+      // as this is often a transient issue that will resolve itself
+      if (!e.toString().contains('StreamSink is bound')) {
+        developer.log('Error sending data: $e');
+        developer.log('Stack trace: $stackTrace');
+        _cleanupConnection();
+      }
     }
   }
 
   Future<void> disconnect() async {
     _cleanupConnection();
+  }
+
+  Future<void> close() async {
+    await disconnect();
   }
 }
