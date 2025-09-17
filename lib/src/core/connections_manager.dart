@@ -34,12 +34,7 @@ class ConnectionsManager {
   }
 
   void removeSession(String clientId) {
-    final session = _sessions.remove(clientId);
-    if (session != null) {
-      // Ensure will message resources are cleaned up
-      session.willMessage = null;
-      session.willTopic = null;
-    }
+    _sessions.remove(clientId);
   }
 
   void createSession(String clientId, bool cleanSession, [String? willTopic, MqttMessage? willMessage]) {
