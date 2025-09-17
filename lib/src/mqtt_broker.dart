@@ -134,14 +134,26 @@ class MqttBroker {
             buffer = buffer.sublist(totalLength);
 
             _packetHandlerRegistry.handlePacket(packetData, connection);
+
+            // Clear the packet data after processing to help with GC
+            packetData.clear();
+          }
+
+          // If buffer gets too large, clear it to prevent memory buildup
+          if (buffer.length > 1024 * 1024) {
+            // 1MB limit
+            developer.log('Buffer exceeded size limit, clearing');
+            buffer.clear();
           }
         } catch (e, stackTrace) {
           developer.log('Error processing data: $e');
           developer.log('Stack trace: $stackTrace');
+          buffer.clear(); // Clear buffer on error
           _disconnectClient(connection);
         }
       },
       onDisconnect: () {
+        buffer.clear(); // Clear buffer on disconnect
         _disconnectClient(connection);
       },
     );
@@ -199,7 +211,7 @@ class MqttBroker {
   Future<void> savePersistentSessions() async {
     try {
       if (!config.enablePersistence) return;
-      
+
       // Get all persistent sessions (non-clean sessions)
       final persistentSessions = <String, Map<String, dynamic>>{};
       final sessionIds = connectionsManager.getAllSessionIds();
@@ -232,7 +244,7 @@ class MqttBroker {
   Future<void> loadPersistentSessions() async {
     try {
       if (!config.enablePersistence) return;
-      
+
       final file = File(config.persistencePath);
       if (!await file.exists()) {
         return;
@@ -263,8 +275,7 @@ class MqttBroker {
           }
         } catch (_) {}
       }
-    } catch (_) {
-    }
+    } catch (_) {}
   }
 
   Future<void> stop() async {
@@ -275,7 +286,7 @@ class MqttBroker {
     _secureServer?.close();
     _maintenanceTimer?.cancel();
 
-    await connectionsManager.dispose();
+    await connectionsManager.dispose(config.enablePersistence);
 
     await savePersistentSessions();
 

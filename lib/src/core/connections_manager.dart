@@ -34,7 +34,12 @@ class ConnectionsManager {
   }
 
   void removeSession(String clientId) {
-    _sessions.remove(clientId);
+    final session = _sessions.remove(clientId);
+    if (session != null) {
+      // Ensure will message resources are cleaned up
+      session.willMessage = null;
+      session.willTopic = null;
+    }
   }
 
   void createSession(String clientId, bool cleanSession, [String? willTopic, MqttMessage? willMessage]) {
@@ -52,8 +57,20 @@ class ConnectionsManager {
   Future<void> disconnectClient(String clientId) async {
     final connection = _connections[clientId];
     if (connection != null) {
-      await connection.close();
-      _connections.remove(clientId);
+      try {
+        await connection.close();
+      } catch (_) {
+      } finally {
+        _connections.remove(clientId);
+
+        // Remove session only if it was a clean session
+        final session = _sessions[clientId];
+        if (session?.cleanSession == true) {
+          removeSession(clientId);
+          cleanupClientSubscriptions(clientId);
+          _broker.messageManager.removeClientMessages(clientId);
+        }
+      }
     }
   }
 
@@ -61,7 +78,6 @@ class ConnectionsManager {
     final connection = _connections[clientId];
     return connection != null && connection.isConnected;
   }
-
 
   void subscribe(String clientId, String topic, int qos) {
     _topicSubscriptions.putIfAbsent(topic, () => {}).add(clientId);
@@ -131,12 +147,31 @@ class ConnectionsManager {
     return subParts.length == pubParts.length;
   }
 
-  Future<void> dispose() async {
+  Future<void> dispose(bool dontRemovePresistance) async {
+    // Disconnect all clients first
     for (var clientId in _connections.keys.toList()) {
       await disconnectClient(clientId);
     }
+
+    // Clean up all remaining sessions
+    if (!dontRemovePresistance) {
+      for (var clientId in _sessions.keys.toList()) {
+        removeSession(clientId);
+        cleanupClientSubscriptions(clientId);
+        _broker.messageManager.removeClientMessages(clientId);
+      }
+
+      // Clear all subscription maps
+      _topicSubscriptions.clear();
+      _clientSubscriptions.clear();
+
+      _sessions.clear();
+    }
+
+    // Clear connection
+    _connections.clear();
   }
-  
+
   /// Get all client IDs that have sessions
   Set<String> getAllSessionIds() {
     return _sessions.keys.toSet();

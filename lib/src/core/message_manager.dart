@@ -145,9 +145,20 @@ class MessageManager {
   }
 
   void processQueuedMessages(String clientId) async {
+    // Check if there's an existing lock and it's not completed
     if (_processingLocks.containsKey(clientId)) {
       var lock = _processingLocks[clientId]!;
-      await lock.future;
+      if (!lock.isCompleted) {
+        try {
+          // Add timeout to prevent deadlock
+          await lock.future.timeout(Duration(seconds: 30));
+        } catch (e) {
+          // If timeout occurs, force complete the lock
+          if (!lock.isCompleted) {
+            lock.complete();
+          }
+        }
+      }
     }
 
     _processingLocks[clientId] = Completer<void>();
@@ -251,6 +262,12 @@ class MessageManager {
   /// Remove all messages for a client
   void removeClientMessages(String clientId) {
     _messageStore.remove(clientId);
+    _qos2Store.remove(clientId);
+    // Clean up any processing locks for this client
+    final lock = _processingLocks.remove(clientId);
+    if (!lock!.isCompleted) {
+      lock.complete();
+    }
   }
 
   void removeClientTopicMessages(String clientId, String topic) {
