@@ -134,16 +134,6 @@ class MqttBroker {
             buffer = buffer.sublist(totalLength);
 
             _packetHandlerRegistry.handlePacket(packetData, connection);
-
-            // Clear the packet data after processing to help with GC
-            packetData.clear();
-          }
-
-          // If buffer gets too large, clear it to prevent memory buildup
-          if (buffer.length > 1024 * 1024) {
-            // 1MB limit
-            developer.log('Buffer exceeded size limit, clearing');
-            buffer.clear();
           }
         } catch (e, stackTrace) {
           developer.log('Error processing data: $e');
