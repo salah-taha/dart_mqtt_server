@@ -76,7 +76,7 @@ class ConnectionsManager {
 
   bool isClientConnected(String clientId) {
     final connection = _connections[clientId];
-    return connection != null && connection.isConnected;
+    return connection != null && connection.isConnected == true;
   }
 
   void subscribe(String clientId, String topic, int qos) {

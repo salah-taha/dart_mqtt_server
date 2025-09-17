@@ -8,6 +8,7 @@ class MqttConnection {
   bool isConnected = false;
   StreamSubscription? _subscription;
   String? clientId;
+  bool isClosed = false;
 
   void Function(List<int>)? _onData;
   void Function()? _onDisconnect;
@@ -50,7 +51,13 @@ class MqttConnection {
 
   void _cleanupConnection() {
     isConnected = false;
-    _subscription?.cancel();
+    if (isClosed) return;
+
+    isClosed = true;
+
+    try {
+      _subscription?.cancel();
+    } catch (_) {}
 
     try {
       _socket.flush();
@@ -76,7 +83,7 @@ class MqttConnection {
 
   Future<void> send(Uint8List data) async {
     try {
-      if (!isConnected) return;
+      if (isConnected != true) return;
 
       // Use a synchronized approach to prevent concurrent socket operations
       // that could cause the "StreamSink is bound to a stream" error
