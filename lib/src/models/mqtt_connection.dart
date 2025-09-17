@@ -49,17 +49,16 @@ class MqttConnection {
   }
 
   void _cleanupConnection() {
-    if (!isConnected) return; // Already cleaned up
-
     isConnected = false;
     _subscription?.cancel();
 
     try {
       _socket.flush();
+    } catch (_) {}
+
+    try {
       _socket.close();
-    } catch (e) {
-      developer.log('Error during cleanup: $e');
-    }
+    } catch (_) {}
 
     // Notify broker of disconnection if callback is set
     if (_onDisconnect != null) {
@@ -78,11 +77,11 @@ class MqttConnection {
   Future<void> send(Uint8List data) async {
     try {
       if (!isConnected) return;
-      
+
       // Use a synchronized approach to prevent concurrent socket operations
       // that could cause the "StreamSink is bound to a stream" error
       _socket.add(data);
-      
+
       // Note: We've removed the flush() call as it can cause issues when
       // multiple messages are being sent in rapid succession
       // The TCP stack will handle the actual sending efficiently
