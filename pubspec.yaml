@@ -1,6 +1,6 @@
 name: mqtt_server
 description: A lightweight, efficient MQTT broker implementation in pure Dart that can be embedded in applications or run as a standalone server.
-version: 1.0.0
+version: 2.0.0
 homepage: https://github.com/salah-taha/dart_mqtt_server
 repository: https://github.com/salah-taha/dart_mqtt_server
 issue_tracker: https://github.com/salah-taha/dart_mqtt_server/issues
