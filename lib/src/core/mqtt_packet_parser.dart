@@ -110,28 +110,62 @@ class MqttPacketParser {
   /// Parse a PUBLISH packet and return a record with the extracted values
   /// Returns (topic, payload, qos, messageId, retain, duplicate)
   static ({String topic, Uint8List payload, int qos, int? messageId, bool retain, bool duplicate}) parsePublishPacket(Uint8List data) {
+    if (data.length < 6) { // Minimum PUBLISH packet is 6 bytes (2 byte header + 2 byte topic length + 2 byte topic name)
+      throw FormatException('Invalid PUBLISH packet: too short');
+    }
+
     final headerByte = data[0];
     final duplicate = (headerByte & 0x08) != 0;
     final qos = (headerByte & 0x06) >> 1;
     final retain = (headerByte & 0x01) != 0;
 
-    var offset = 2; // Skip fixed header and assuming 1 byte for remaining length for simplicity
+    // Parse remaining length (can be 1-4 bytes)
+    var offset = 1;
+    var multiplier = 1;
+    var remainingLength = 0;
+    var digit = 0;
+    
+    do {
+      if (offset >= data.length) {
+        throw FormatException('Invalid remaining length in PUBLISH packet');
+      }
+      digit = data[offset++];
+      remainingLength += (digit & 127) * multiplier;
+      multiplier *= 128;
+    } while ((digit & 128) != 0);
+
+    // Ensure we have enough data for the remaining packet
+    if (data.length < offset + remainingLength) {
+      throw FormatException('Incomplete PUBLISH packet');
+    }
 
     // Extract topic length and topic
-    final topicLength = ((data[offset] << 8) | data[offset + 1]);
+    if (offset + 2 > data.length) {
+      throw FormatException('Invalid topic length in PUBLISH packet');
+    }
+    
+    final topicLength = (data[offset] << 8) | data[offset + 1];
     offset += 2;
+
+    if (offset + topicLength > data.length) {
+      throw FormatException('Topic length exceeds packet size');
+    }
+
     final topic = utf8.decode(data.sublist(offset, offset + topicLength));
     offset += topicLength;
 
     // Extract message ID if QoS > 0
     int? messageId;
     if (qos > 0) {
-      messageId = ((data[offset] << 8) | data[offset + 1]);
+      if (offset + 2 > data.length) {
+        throw FormatException('Incomplete message ID in PUBLISH packet');
+      }
+      messageId = (data[offset] << 8) | data[offset + 1];
       offset += 2;
     }
 
-    // Extract payload (everything after the message ID if present)
-    final payload = data.sublist(offset);
+    // Extract payload (only up to the remaining length)
+    final payload = data.sublist(offset, offset + (remainingLength - (offset - 1) + 1));
 
     return (topic: topic, payload: payload, qos: qos, messageId: messageId, retain: retain, duplicate: duplicate);
   }

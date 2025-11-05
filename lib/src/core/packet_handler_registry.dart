@@ -13,6 +13,8 @@ import 'package:mqtt_server/src/packet_handlers/pubrec_handler.dart';
 import 'package:mqtt_server/src/packet_handlers/pubrel_handler.dart';
 import 'package:mqtt_server/src/packet_handlers/subscribe_handler.dart';
 import 'package:mqtt_server/src/packet_handlers/unsubscribe_handler.dart';
+import 'dart:developer' as developer;
+
 
 class PacketHandlerRegistry {
   final MqttBroker _broker;
@@ -43,7 +45,11 @@ class PacketHandlerRegistry {
 
     final handler = _handlers[packetType];
     if (handler != null) {
-      await handler.handle(data, client);
+      try {
+        await handler.handle(data, client);
+      } catch (e) {
+        developer.log('Error handling packet: $e');
+      }
     }
   }
 }
