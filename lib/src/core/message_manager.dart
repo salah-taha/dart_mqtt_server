@@ -161,29 +161,33 @@ class MessageManager {
       }
     }
 
-    _processingLocks[clientId] = Completer<void>();
-
+    // Early exit: if there is no queue for this client, don't create a new lock
     if (!_messageStore.containsKey(clientId)) {
-      var lock = _processingLocks.remove(clientId);
-      lock?.complete();
       return;
     }
 
     final queuedEntries = _messageStore[clientId];
+    // Early exit: nothing to process
     if (queuedEntries == null || queuedEntries.isEmpty) {
-      var lock = _processingLocks.remove(clientId);
-      lock?.complete();
       return;
     }
+
+    // Create a lock only when there is confirmed work to process
+    final currentLock = Completer<void>();
+    _processingLocks[clientId] = currentLock;
 
     final message = queuedEntries.first;
 
     try {
       final topic = message.topic ?? 'unknown';
+      final connection = _broker.connectionsManager.getConnection(clientId);
+
+      if (connection == null) {
+        return;
+      }
 
       switch (message.qos) {
         case 0: // QoS 0: At most once delivery
-
           final publishPacket = PacketGenerator.publishPacket(
             topic: topic,
             payload: message.payload,
@@ -194,18 +198,10 @@ class MessageManager {
           );
 
           queuedEntries.removeFirst();
-
-          final connection = _broker.connectionsManager.getConnection(clientId);
-          if (connection == null) break;
-
           connection.send(publishPacket);
-          await Future.delayed(Duration(milliseconds: 50));
-
-          processQueuedMessages(clientId);
           break;
 
         case 1: // QoS 1: At least once delivery
-
           final publishPacket = PacketGenerator.publishPacket(
             topic: topic,
             payload: message.payload,
@@ -215,20 +211,11 @@ class MessageManager {
             isDuplicate: message.state != QosMessageState.pending,
           );
 
-          final connection = _broker.connectionsManager.getConnection(clientId);
-          if (connection == null) break;
-
           connection.send(publishPacket);
           message.state = QosMessageState.pubAckPending;
-
-          Future.delayed(_broker.config.retryInterval, () {
-            processQueuedMessages(clientId);
-          });
-
           break;
 
         case 2: // QoS 2: Exactly once delivery
-
           final publishPacket = PacketGenerator.publishPacket(
             topic: topic,
             payload: message.payload,
@@ -238,24 +225,28 @@ class MessageManager {
             isDuplicate: message.state != QosMessageState.pending,
           );
 
-          final connection = _broker.connectionsManager.getConnection(clientId);
-          if (connection == null) break;
-
           connection.send(publishPacket);
           message.state = QosMessageState.pubRecPending;
-
-          Future.delayed(_broker.config.retryInterval, () {
-            processQueuedMessages(clientId);
-          });
-
           break;
       }
+
+      // Schedule next message processing if there are more messages
+      if (queuedEntries.isNotEmpty) {
+        Future.delayed(_broker.config.retryInterval, () {
+          processQueuedMessages(clientId);
+        });
+      }
     } catch (e) {
+      // In case of errors, schedule a retry
       Future.delayed(_broker.config.retryInterval, () {
         processQueuedMessages(clientId);
       });
     } finally {
-      _processingLocks[clientId]!.complete();
+      // Safely complete and remove the lock only if it's still the active one
+      if (_processingLocks[clientId] == currentLock) {
+        currentLock.complete();
+        _processingLocks.remove(clientId);
+      }
     }
   }
 
