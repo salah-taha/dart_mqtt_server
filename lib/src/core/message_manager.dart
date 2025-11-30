@@ -145,10 +145,20 @@ class MessageManager {
   }
 
   void processQueuedMessages(String clientId) async {
-    // Wait for any ongoing processing to finish for this client to avoid re-entrancy
+    // Check if there's an existing lock and it's not completed
     if (_processingLocks.containsKey(clientId)) {
-      final existing = _processingLocks[clientId]!;
-      await existing.future;
+      var lock = _processingLocks[clientId]!;
+      if (!lock.isCompleted) {
+        try {
+          // Add timeout to prevent deadlock
+          await lock.future.timeout(Duration(seconds: 30));
+        } catch (e) {
+          // If timeout occurs, force complete the lock
+          if (!lock.isCompleted) {
+            lock.complete();
+          }
+        }
+      }
     }
 
     // Early exit: if there is no queue for this client, don't create a new lock
@@ -171,7 +181,7 @@ class MessageManager {
     try {
       final topic = message.topic ?? 'unknown';
       final connection = _broker.connectionsManager.getConnection(clientId);
-      
+
       if (connection == null) {
         return;
       }
@@ -243,6 +253,12 @@ class MessageManager {
   /// Remove all messages for a client
   void removeClientMessages(String clientId) {
     _messageStore.remove(clientId);
+    _qos2Store.remove(clientId);
+    // Clean up any processing locks for this client
+    final lock = _processingLocks.remove(clientId);
+    if (!lock!.isCompleted) {
+      lock.complete();
+    }
   }
 
   void removeClientTopicMessages(String clientId, String topic) {
